@@ -1,0 +1,36 @@
+# Python internals
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Editor directories
+.vscode/
+.idea/
+
+# Databases
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+server_log.txt
+
+# Backups and temporary files
+backup/
+results/
+debug_pages/
+__pycache__/
+
+# Temporary verification files
+verify_output*.txt
+consolidated_code.txt
+debug_db.py
+verify_server.py

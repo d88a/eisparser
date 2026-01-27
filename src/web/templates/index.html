@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EIS Parser - Stage 1 Intake</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+
+<body>
+    <div class="container">
+        <!-- A. Control Panel -->
+        <header class="control-panel">
+            <div class="branding">
+                <div class="logo">EIS Parser v2.0</div>
+                <nav class="main-nav">
+                    <a href="/" class="active">Stage 1: Intake</a>
+                    <a href="/stage2">Stage 2: AI Review</a>
+                </nav>
+            </div>
+
+            <div class="stats-panel">
+                <div class="stat-item total">
+                    <span class="label">Загружено</span>
+                    <span class="value" id="stat-total">0</span>
+                </div>
+                <div class="stat-item approved">
+                    <span class="label">Выбрано</span>
+                    <span class="value" id="stat-selected">0</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- D. Actions (Top/Bottom) -->
+        <div class="actions-bar">
+            <button id="btn-run-stage1" class="btn btn-primary" style="background-color: #64748b; margin-right: 10px;">
+                📥 Загрузить закупки с ЕИС
+            </button>
+            <span id="stage1-status" class="status-msg" style="margin-right: 20px;"></span>
+
+            <button id="btn-add-to-stage2" class="btn btn-primary" disabled>
+                ➕ Добавить закупки
+            </button>
+            <span id="stage2-status" class="status-msg"></span>
+        </div>
+
+        <!-- B. Table -->
+        <div class="table-container">
+            <table id="zakupki-table">
+                <thead>
+                    <tr>
+                        <th width="40"><input type="checkbox" id="select-all" onclick="toggleSelectAll(this)"></th>
+                        <th width="180">Рег. №</th>
+                        <th width="100">Дата</th>
+                        <th width="130">Окончание заявок</th>
+                        <th>Название закупки</th>
+                    </tr>
+                </thead>
+                <tbody id="zakupki-body">
+                    <!-- Rows will be injected by JS -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/js/app.js"></script>
+</body>
+
+</html>

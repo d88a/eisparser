@@ -1,0 +1,198 @@
+:root {
+    --primary-color: #2563eb;
+    --success-color: #10b981;
+    --danger-color: #ef4444;
+    --neutral-color: #64748b;
+    --bg-color: #f8fafc;
+    --text-color: #1e293b;
+    --border-color: #e2e8f0;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    margin: 0;
+    padding: 20px;
+}
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    background: white;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+/* Control Panel */
+.control-panel {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.branding {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.logo {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: var(--primary-color);
+}
+
+.main-nav {
+    display: flex;
+    gap: 5px;
+}
+
+.main-nav a {
+    text-decoration: none;
+    color: var(--neutral-color);
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.main-nav a:hover {
+    background: #e2e8f0;
+    color: var(--text-color);
+}
+
+.main-nav a.active {
+    background: var(--primary-color);
+    color: white;
+}
+
+.stats-panel {
+    display: flex;
+    gap: 20px;
+}
+
+.stat-item {
+    text-align: center;
+    padding: 0 10px;
+}
+
+.stat-item .value {
+    display: block;
+    font-size: 1.25rem;
+    font-weight: bold;
+}
+
+.stat-item.total .value {
+    color: var(--text-color);
+}
+
+.stat-item.approved .value {
+    color: var(--success-color);
+}
+
+.stat-item.rejected .value {
+    color: var(--danger-color);
+}
+
+.stat-item.pending .value {
+    color: var(--neutral-color);
+}
+
+/* Actions Bar */
+.actions-bar {
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.btn {
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: opacity 0.2s;
+}
+
+.btn:hover:not(:disabled) {
+    opacity: 0.9;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.btn-approve {
+    background-color: var(--success-color);
+    color: white;
+}
+
+.btn-reject {
+    background-color: var(--danger-color);
+    color: white;
+}
+
+.btn-skip {
+    background-color: var(--neutral-color);
+    color: white;
+}
+
+.btn-sm {
+    padding: 4px 8px;
+    font-size: 0.85rem;
+}
+
+/* Table */
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th,
+td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+th {
+    background-color: #f1f5f9;
+    font-weight: 600;
+}
+
+tr.row-approved {
+    background-color: rgba(16, 185, 129, 0.1);
+}
+
+tr.row-rejected {
+    background-color: rgba(239, 68, 68, 0.1);
+}
+
+tr:hover {
+    background-color: #f8fafc;
+}
+
+.comment-input {
+    width: 100%;
+    padding: 4px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+.status-msg {
+    margin-left: 10px;
+    font-style: italic;
+    color: var(--neutral-color);
+}

@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stage 2: AI Review - EIS Parser</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .stage2-container {
+            display: flex;
+            height: calc(100vh - 80px);
+            gap: 20px;
+            padding: 20px;
+        }
+
+        .list-panel {
+            width: 350px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .list-item {
+            padding: 12px 15px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+            transition: background 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .list-item:hover {
+            background: #f8f9fa;
+        }
+
+        .list-item.active {
+            background: #e3f2fd;
+            border-left: 4px solid #007bff;
+        }
+
+        .list-item.checked {
+            background: #e8f5e9;
+        }
+
+        .list-item-content {
+            flex: 1;
+        }
+
+        .list-item-header {
+            font-weight: bold;
+            font-size: 0.85em;
+            margin-bottom: 4px;
+        }
+
+        .list-item-desc {
+            font-size: 0.75em;
+            color: #666;
+        }
+
+        .review-panel {
+            flex: 1;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .review-header {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            background: #f8f9fa;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .review-body {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .fields-panel {
+            width: 400px;
+            padding: 15px;
+            background: #f8f9fa;
+            overflow-y: auto;
+            border-right: 1px solid #eee;
+        }
+
+        .field-row {
+            background: #fff;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .field-row.has-override {
+            border-left: 3px solid #4caf50;
+        }
+
+        .field-label {
+            font-size: 0.75em;
+            color: #888;
+            margin-bottom: 4px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .field-values {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .ai-value {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .override-value {
+            color: #2e7d32;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+
+        .edit-btn {
+            font-size: 0.75em;
+            cursor: pointer;
+            color: #1976d2;
+        }
+
+        .text-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: #fafafa;
+        }
+
+        .text-panel-header {
+            padding: 10px 20px;
+            background: #e8e8e8;
+            font-weight: bold;
+            font-size: 0.9em;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .text-panel-content {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+
+        .review-footer {
+            padding: 15px;
+            border-top: 1px solid #eee;
+            background: #f8f9fa;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .empty-state {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #999;
+            font-size: 1.2em;
+        }
+
+        .main-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            background: #fff;
+            border-bottom: 1px solid #eee;
+        }
+
+        /* Edit Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal-box {
+            background: #fff;
+            padding: 25px;
+            border-radius: 8px;
+            min-width: 350px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .modal-title {
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+
+        .modal-input {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+    </style>
+</head>
+
+<body>
+    <header class="main-header">
+        <div class="logo">EIS Parser v2.0</div>
+        <nav class="main-nav">
+            <a href="/">Stage 1: Intake</a>
+            <a href="/stage2" class="active">Stage 2: AI Review</a>
+        </nav>
+        <div class="stats-bar">
+            <span>На проверке: <strong id="stat-count">0</strong></span>
+            <span style="margin-left:15px">Выбрано: <strong id="stat-selected">0</strong></span>
+        </div>
+    </header>
+
+    <div class="stage2-container">
+        <div class="list-panel" id="review-list"></div>
+        <div class="review-panel" id="review-workspace">
+            <div class="empty-state">Выберите закупку слева для проверки</div>
+        </div>
+    </div>
+
+    <div style="position: fixed; bottom: 20px; right: 20px; z-index: 100;">
+        <button id="btn-run-stage3" class="btn btn-primary" disabled
+            style="box-shadow: 0 4px 12px rgba(0,0,0,0.2); padding: 15px 30px; font-size: 1.1em;">
+            🚀 Запустить Stage 3 (0 выбрано)
+        </button>
+    </div>
+
+    <!-- Edit Modal -->
+    <div class="modal-overlay" id="edit-modal">
+        <div class="modal-box">
+            <div class="modal-title">Изменить: <span id="modal-field-name"></span></div>
+            <div style="margin-bottom:10px; color:#666; font-size:0.85em">
+                AI значение: <strong id="modal-ai-value"></strong>
+            </div>
+            <input type="text" class="modal-input" id="modal-input" placeholder="Новое значение">
+            <div class="modal-actions">
+                <button class="btn btn-skip" onclick="closeModal()">Отмена</button>
+                <button class="btn btn-approve" onclick="saveOverride()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/stage2.js"></script>
+</body>
+
+</html>
