@@ -17,7 +17,7 @@ class Settings:
     
     # Gemini AI
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash-exp"
+    gemini_model: str = "google/gemini-2.0-flash-exp:free"
     
     # Database
     database_path: str = ""
@@ -117,4 +117,4 @@ RESULTS_DIR = str(settings.results_dir)
 # Константы для OpenRouter (ai_extractor.py)
 OPENROUTER_API_KEY_ENV = "OPENROUTER_API_KEY"
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_MODEL = "google/gemini-2.0-flash-001"
+OPENROUTER_MODEL = "google/gemini-2.0-flash-exp:free"

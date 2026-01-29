@@ -24,7 +24,10 @@ class ZakupkaRepository(BaseRepository[Zakupka]):
                         link TEXT,
                         combined_text TEXT,
                         two_gis_url TEXT,
-                        processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        status TEXT DEFAULT 'raw',
+                        prepared_by_user_id INTEGER,
+                        prepared_at TIMESTAMP
                     )
                 """)
                 conn.commit()
@@ -37,10 +40,14 @@ class ZakupkaRepository(BaseRepository[Zakupka]):
         def _save():
             with self.get_connection() as conn:
                 cursor = conn.cursor()
+                
+                # Подготовка данных для сохранения
+                prepared_at_str = zakupka.prepared_at.isoformat() if zakupka.prepared_at else None
+                
                 cursor.execute("""
                     INSERT OR REPLACE INTO zakupki
-                    (reg_number, description, update_date, bid_end_date, initial_price, link, combined_text, two_gis_url)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (reg_number, description, update_date, bid_end_date, initial_price, link, combined_text, two_gis_url, status, prepared_by_user_id, prepared_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     zakupka.reg_number,
                     zakupka.description,
@@ -49,7 +56,10 @@ class ZakupkaRepository(BaseRepository[Zakupka]):
                     zakupka.initial_price,
                     zakupka.link,
                     zakupka.combined_text,
-                    zakupka.two_gis_url
+                    zakupka.two_gis_url,
+                    zakupka.status,
+                    zakupka.prepared_by_user_id,
+                    prepared_at_str
                 ))
                 conn.commit()
                 return cursor.rowcount > 0
@@ -153,3 +163,75 @@ class ZakupkaRepository(BaseRepository[Zakupka]):
                 return [Zakupka.from_dict(dict(row)) for row in rows]
         
         return self.execute_with_retry(_get) or []
+    
+    def update_status(self, reg_number: str, status: str, prepared_by_user_id: Optional[int] = None) -> bool:
+        """Обновляет статус закупки."""
+        def _update():
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Если статус url_ready, проставляем prepared_at
+                if status == 'url_ready':
+                    from datetime import datetime
+                    cursor.execute(
+                        "UPDATE zakupki SET status = ?, prepared_by_user_id = ?, prepared_at = ? WHERE reg_number = ?",
+                        (status, prepared_by_user_id, datetime.now().isoformat(), reg_number)
+                    )
+                else:
+                    cursor.execute(
+                        "UPDATE zakupki SET status = ? WHERE reg_number = ?",
+                        (status, reg_number)
+                    )
+                conn.commit()
+                return cursor.rowcount > 0
+        
+        return self.execute_with_retry(_update) or False
+    
+    def get_by_status(self, status: str) -> List[Zakupka]:
+        """Получает закупки с указанным статусом."""
+        def _get():
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT * FROM zakupki WHERE status = ?",
+                    (status,)
+                )
+                rows = cursor.fetchall()
+                return [Zakupka.from_dict(dict(row)) for row in rows]
+        
+        return self.execute_with_retry(_get) or []
+    
+    def get_by_statuses(self, statuses: List[str]) -> List[Zakupka]:
+        """Получает закупки с одним из указанных статусов."""
+        if not statuses:
+            return []
+        
+        def _get():
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                placeholders = ','.join(['?'] * len(statuses))
+                cursor.execute(
+                    f"SELECT * FROM zakupki WHERE status IN ({placeholders})",
+                    statuses
+                )
+                rows = cursor.fetchall()
+                return [Zakupka.from_dict(dict(row)) for row in rows]
+        
+        return self.execute_with_retry(_get) or []
+
+    
+    def get_status_counts(self) -> dict:
+        """Возвращает количество закупок по каждому статусу."""
+        def _count():
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT status, COUNT(*) as count 
+                    FROM zakupki 
+                    GROUP BY status
+                """)
+                rows = cursor.fetchall()
+                return {row['status']: row['count'] for row in rows}
+        
+        return self.execute_with_retry(_count) or {}
+

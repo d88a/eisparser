@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EIS Parser - Доступные закупки</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="control-panel">
+            <div class="branding">
+                <div class="logo">EIS Parser v2.0</div>
+                <nav class="main-nav">
+                    <a href="/">Stage 1: Intake</a>
+                    <a href="/stage2">Stage 2: AI Review</a>
+                    <a href="/user/available" class="active">Доступные закупки</a>
+                    <a href="/user/selections">Мои выборки</a>
+                </nav>
+            </div>
+
+            <div class="stats-panel">
+                <div class="stat-item total">
+                    <span class="label">Доступно</span>
+                    <span class="value" id="stat-total">0</span>
+                </div>
+                <div class="stat-item approved">
+                    <span class="label">Выбрано</span>
+                    <span class="value" id="stat-selected">0</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Actions -->
+        <div class="actions-bar">
+            <button id="btn-select" class="btn btn-primary" disabled>
+                ➕ Добавить в выборку
+            </button>
+            <button id="btn-refresh" class="btn" style="background-color: #64748b; margin-left: 10px;">
+                🔄 Обновить
+            </button>
+            <span id="status-msg" class="status-msg"></span>
+        </div>
+
+        <!-- Table -->
+        <div class="table-container">
+            <table id="zakupki-table">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;">
+                            <input type="checkbox" id="select-all">
+                        </th>
+                        <th>Рег. номер</th>
+                        <th>Описание</th>
+                        <th>Город</th>
+                        <th>Площадь</th>
+                        <th>Комнат</th>
+                        <th>Цена</th>
+                        <th>Статус</th>
+                    </tr>
+                </thead>
+                <tbody id="zakupki-tbody">
+                    <tr>
+                        <td colspan="8" style="text-align: center; padding: 40px;">
+                            Загрузка...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const userId = 1; // Hardcoded для MVP
+        let zakupki = [];
+        let selectedIds = new Set();
+
+        // Загрузка данных
+        async function loadData() {
+            try {
+                const response = await fetch(`/api/user/available_zakupki?user_id=${userId}`);
+                const data = await response.json();
+                
+                zakupki = data.zakupki || [];
+                renderTable();
+                updateStats();
+            } catch (error) {
+                showStatus('Ошибка загрузки данных: ' + error.message, 'error');
+            }
+        }
+
+        // Отрисовка таблицы
+        function renderTable() {
+            const tbody = document.getElementById('zakupki-tbody');
+            
+            if (zakupki.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px;">Нет доступных закупок</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = zakupki.map(z => `
+                <tr>
+                    <td><input type="checkbox" class="row-select" data-reg="${z.reg_number}" ${z.is_selected ? 'checked' : ''}></td>
+                    <td>${z.reg_number}</td>
+                    <td>${z.description || '-'}</td>
+                    <td>${z.city || '-'}</td>
+                    <td>${z.area || '-'}</td>
+                    <td>${z.rooms || '-'}</td>
+                    <td>${z.initial_price ? (z.initial_price / 1000000).toFixed(2) + ' млн' : '-'}</td>
+                    <td><span class="badge">${z.status}</span></td>
+                </tr>
+            `).join('');
+
+            // Обработчики чекбоксов
+            document.querySelectorAll('.row-select').forEach(cb => {
+                cb.addEventListener('change', (e) => {
+                    const regNumber = e.target.dataset.reg;
+                    if (e.target.checked) {
+                        selectedIds.add(regNumber);
+                    } else {
+                        selectedIds.delete(regNumber);
+                    }
+                    updateButtons();
+                });
+            });
+        }
+
+        // Обновление кнопок
+        function updateButtons() {
+            const btn = document.getElementById('btn-select');
+            btn.disabled = selectedIds.size === 0;
+            btn.textContent = selectedIds.size > 0 ? `➕ Добавить в выборку (${selectedIds.size})` : '➕ Добавить в выборку';
+        }
+
+        // Обновление статистики
+        function updateStats() {
+            document.getElementById('stat-total').textContent = zakupki.length;
+            const selectedCount = zakupki.filter(z => z.is_selected).length;
+            document.getElementById('stat-selected').textContent = selectedCount;
+        }
+
+        // Добавление в выборку
+        async function addToSelection() {
+            const btn = document.getElementById('btn-select');
+            btn.disabled = true;
+            btn.textContent = 'Добавление...';
+
+            try {
+                const response = await fetch('/api/user/select', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        user_id: userId,
+                        reg_numbers: Array.from(selectedIds)
+                    })
+                });
+
+                const result = await response.json();
+                showStatus(result.message, 'success');
+                
+                selectedIds.clear();
+                loadData(); // Перезагрузка
+            } catch (error) {
+                showStatus('Ошибка: ' + error.message, 'error');
+                btn.disabled = false;
+            }
+        }
+
+        // Показ статуса
+        function showStatus(message, type = 'info') {
+            const el = document.getElementById('status-msg');
+            el.textContent = message;
+            el.style.color = type === 'error' ? '#ef4444' : (type === 'success' ? '#10b981' : '#64748b');
+            setTimeout(() => el.textContent = '', 5000);
+        }
+
+        // Select All
+        document.getElementById('select-all').addEventListener('change', (e) => {
+            const checkboxes = document.querySelectorAll('.row-select');
+            checkboxes.forEach(cb => {
+                cb.checked = e.target.checked;
+                const regNumber = cb.dataset.reg;
+                if (e.target.checked) {
+                    selectedIds.add(regNumber);
+                } else {
+                    selectedIds.delete(regNumber);
+                }
+            });
+            updateButtons();
+        });
+
+        // Кнопки
+        document.getElementById('btn-select').addEventListener('click', addToSelection);
+        document.getElementById('btn-refresh').addEventListener('click', loadData);
+
+        // Загрузка при старте
+        loadData();
+    </script>
+</body>
+
+</html>

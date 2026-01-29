@@ -126,6 +126,10 @@ class Pipeline:
         
         if url:
             self.eis.update_two_gis_url(reg_number, url)
+            
+            # Обновляем статус на 'url_ready' (Этап 2)
+            self.db_service.zakupki.update_status(reg_number, 'url_ready', prepared_by_user_id=user_id)
+            
             self.logger.info(f"Ссылка сгенерирована для {reg_number} (city={city})")
         
         return url
@@ -157,6 +161,9 @@ class Pipeline:
         
         if result.items:
             self.scraper.save_listings(reg_number, result.items, url)
+            
+            # Обновляем статус на 'listings_fresh' (Этап 2)
+            self.db_service.zakupki.update_status(reg_number, 'listings_fresh')
         
         return result
     
@@ -328,6 +335,10 @@ class Pipeline:
                         if self.eis.save_zakupka(zakupka):
                             saved += 1
                             found += 1
+                            
+                            # Обновляем статус на 'raw' (Этап 2)
+                            self.db_service.zakupki.update_status(reg_number, 'raw')
+                            
                             self.logger.info(f"✅ Сохранена закупка {reg_number} ({found}/{limit})")
                             
                             # Удаляем папку — текст уже в БД
@@ -470,6 +481,10 @@ class Pipeline:
                         processed += 1
                         if ai_result.city and ai_result.city not in cities:
                             cities.append(ai_result.city)
+                        
+                        # Обновляем статус на 'ai_ready' (Этап 2)
+                        self.db_service.zakupki.update_status(reg_number, 'ai_ready')
+                        
                         self.logger.info(f"✅ Сохранён результат для {reg_number}")
                     
                 except Exception as e:

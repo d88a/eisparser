@@ -20,11 +20,18 @@ class Zakupka:
     two_gis_url: Optional[str] = None       # Сгенерированная ссылка 2ГИС
     processed_at: Optional[datetime] = None # Время обработки
     
+    # Новые поля для системы статусов
+    status: str = "raw"                     # Статус: raw, ai_processing, ai_ready, url_ready, user_selected, listings_fresh, listings_stale
+    prepared_by_user_id: Optional[int] = None  # ID админа, который подготовил закупку
+    prepared_at: Optional[datetime] = None  # Время завершения подготовки (Stage 3)
+    
     def to_dict(self) -> dict:
         """Преобразует в словарь для сохранения в БД."""
         data = asdict(self)
         if self.processed_at:
             data['processed_at'] = self.processed_at.isoformat()
+        if self.prepared_at:
+            data['prepared_at'] = self.prepared_at.isoformat()
         return data
     
     @classmethod
@@ -37,6 +44,13 @@ class Zakupka:
             except:
                 processed_at = None
         
+        prepared_at = data.get('prepared_at')
+        if prepared_at and isinstance(prepared_at, str):
+            try:
+                prepared_at = datetime.fromisoformat(prepared_at)
+            except:
+                prepared_at = None
+        
         return cls(
             reg_number=data.get('reg_number', ''),
             description=data.get('description', ''),
@@ -46,5 +60,8 @@ class Zakupka:
             link=data.get('link', ''),
             combined_text=data.get('combined_text', ''),
             two_gis_url=data.get('two_gis_url'),
-            processed_at=processed_at
+            processed_at=processed_at,
+            status=data.get('status', 'raw'),
+            prepared_by_user_id=data.get('prepared_by_user_id'),
+            prepared_at=prepared_at
         )

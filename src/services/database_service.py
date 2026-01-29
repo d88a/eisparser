@@ -6,6 +6,7 @@ from pathlib import Path
 from config.settings import settings
 from repositories import ZakupkaRepository, AIResultRepository, ListingRepository, UserRepository, DecisionRepository
 from repositories.user_override_repo import UserOverrideRepository
+from repositories.user_selection_repo import UserSelectionRepository
 from utils.logger import get_logger
 
 
@@ -30,6 +31,7 @@ class DatabaseService:
         self.users = UserRepository(self.db_path)
         self.decisions = DecisionRepository(self.db_path)
         self.user_overrides = UserOverrideRepository(self.db_path)
+        self.user_selections = UserSelectionRepository(self.db_path)
         
         self.logger.debug(f"DatabaseService инициализирован: {self.db_path}")
     
@@ -52,7 +54,8 @@ class DatabaseService:
             self.listings.create_table(),
             self.users.create_table(),
             self.decisions.create_table(),
-            self.user_overrides.create_table()
+            self.user_overrides.create_table(),
+            self.user_selections.create_table()
         ])
         
         if success:

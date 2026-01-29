@@ -2,8 +2,12 @@
 FastAPI приложение для UI пайплайна.
 """
 import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+# Добавляем src в пути для импорта
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
