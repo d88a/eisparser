@@ -1,0 +1,65 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EIS Parser — Вход</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .landing-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background-color: #f8fafc;
+        }
+        .landing-card {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            text-align: center;
+            width: 100%;
+            max-width: 400px;
+        }
+        .btn-large {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            font-size: 1.1em;
+            text-decoration: none;
+            transition: transform 0.2s;
+        }
+        .btn-user {
+            background-color: #2563eb;
+            color: white;
+        }
+        .btn-admin {
+            background-color: #475569;
+            color: white;
+        }
+        .btn-large:hover {
+            transform: translateY(-2px);
+            opacity: 0.9;
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #1e293b;
+            margin-bottom: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="landing-container">
+        <div class="landing-card">
+            <div class="logo">EIS Parser v2.0</div>
+            <a href="/user/available" class="btn-large btn-user">Войти как пользователь</a>
+            <a href="/admin/login" class="btn-large btn-admin">Войти как администратор</a>
+        </div>
+    </div>
+</body>
+</html>

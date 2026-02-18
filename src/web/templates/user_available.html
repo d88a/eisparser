@@ -1,30 +1,47 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ru">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EIS Parser - Доступные закупки</title>
+    <title>Закупки с ЕИС</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .load-more-container {
+            text-align: center;
+            padding: 20px;
+        }
+        .nav-user a {
+            color: #64748b;
+            text-decoration: none;
+            margin-right: 15px;
+        }
+        .nav-user a.active {
+            color: #2563eb;
+            font-weight: bold;
+        }
+    </style>
 </head>
 
 <body>
     <div class="container">
-        <!-- Header -->
         <header class="control-panel">
             <div class="branding">
                 <div class="logo">EIS Parser v2.0</div>
-                <nav class="main-nav">
-                    <a href="/">Stage 1: Intake</a>
-                    <a href="/stage2">Stage 2: AI Review</a>
-                    <a href="/user/available" class="active">Доступные закупки</a>
-                    <a href="/user/selections">Мои выборки</a>
+                <nav class="main-nav nav-user">
+                    {% if is_admin %}
+                    <a href="/user/available" class="active">Этап 3: Проверка</a>
+                    <a href="/user/selections">Этап 4: Сбор объявлений</a>
+                    {% else %}
+                    <a href="/user/selections" class="active">Этап 4: Сбор объявлений</a>
+                    {% endif %}
+                    <a href="/" style="margin-left: 20px;">Выход</a>
                 </nav>
             </div>
 
             <div class="stats-panel">
                 <div class="stat-item total">
-                    <span class="label">Доступно</span>
+                    <span class="label">Всего доступно</span>
                     <span class="value" id="stat-total">0</span>
                 </div>
                 <div class="stat-item approved">
@@ -34,18 +51,13 @@
             </div>
         </header>
 
-        <!-- Actions -->
         <div class="actions-bar">
             <button id="btn-select" class="btn btn-primary" disabled>
-                ➕ Добавить в выборку
-            </button>
-            <button id="btn-refresh" class="btn" style="background-color: #64748b; margin-left: 10px;">
-                🔄 Обновить
+                Добавить в выборку
             </button>
             <span id="status-msg" class="status-msg"></span>
         </div>
 
-        <!-- Table -->
         <div class="table-container">
             <table id="zakupki-table">
                 <thead>
@@ -63,60 +75,85 @@
                     </tr>
                 </thead>
                 <tbody id="zakupki-tbody">
-                    <tr>
-                        <td colspan="8" style="text-align: center; padding: 40px;">
-                            Загрузка...
-                        </td>
-                    </tr>
+                    <!-- Data -->
                 </tbody>
             </table>
+        </div>
+
+        <div class="load-more-container">
+            <button id="btn-load-more" class="btn" style="background-color: #f1f5f9; color: #334155; display: none;">
+                Показать ещё
+            </button>
         </div>
     </div>
 
     <script>
-        const userId = 1; // Hardcoded для MVP
-        let zakupki = [];
+        const userId = 1;
         let selectedIds = new Set();
+        let currentOffset = 0;
+        const limit = 10;
+        let totalAvailable = 0;
 
-        // Загрузка данных
-        async function loadData() {
+        async function loadData(reset = false) {
+            if (reset) {
+                currentOffset = 0;
+                document.getElementById('zakupki-tbody').innerHTML = '';
+            }
+
+            const btnLoadMore = document.getElementById('btn-load-more');
+            btnLoadMore.textContent = 'Загрузка...';
+            btnLoadMore.disabled = true;
+
             try {
-                const response = await fetch(`/api/user/available_zakupki?user_id=${userId}`);
+                const response = await fetch(`/api/user/available_zakupki?user_id=${userId}&offset=${currentOffset}&limit=${limit}`);
                 const data = await response.json();
-                
-                zakupki = data.zakupki || [];
-                renderTable();
+
+                totalAvailable = data.total;
+                const zakupki = data.zakupki || [];
+
+                renderRows(zakupki);
                 updateStats();
+
+                currentOffset += zakupki.length;
+
+                if (currentOffset < totalAvailable) {
+                    btnLoadMore.style.display = 'inline-block';
+                    btnLoadMore.textContent = 'Показать ещё';
+                    btnLoadMore.disabled = false;
+                } else {
+                    btnLoadMore.style.display = 'none';
+                }
+
             } catch (error) {
                 showStatus('Ошибка загрузки данных: ' + error.message, 'error');
             }
         }
 
-        // Отрисовка таблицы
-        function renderTable() {
+        function renderRows(zakupki) {
             const tbody = document.getElementById('zakupki-tbody');
-            
-            if (zakupki.length === 0) {
+
+            if (zakupki.length === 0 && currentOffset === 0) {
                 tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px;">Нет доступных закупок</td></tr>';
                 return;
             }
 
-            tbody.innerHTML = zakupki.map(z => `
+            const html = zakupki.map(z => `
                 <tr>
                     <td><input type="checkbox" class="row-select" data-reg="${z.reg_number}" ${z.is_selected ? 'checked' : ''}></td>
-                    <td>${z.reg_number}</td>
-                    <td>${z.description || '-'}</td>
+                    <td><a href="https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=${z.reg_number}" target="_blank">${z.reg_number}</a></td>
+                    <td>${z.description ? z.description.substring(0, 100) + '...' : '-'}</td>
                     <td>${z.city || '-'}</td>
                     <td>${z.area || '-'}</td>
                     <td>${z.rooms || '-'}</td>
                     <td>${z.initial_price ? (z.initial_price / 1000000).toFixed(2) + ' млн' : '-'}</td>
-                    <td><span class="badge">${z.status}</span></td>
+                    <td><span class="badge" style="background: #10b981;">Готово</span></td>
                 </tr>
             `).join('');
 
-            // Обработчики чекбоксов
+            tbody.insertAdjacentHTML('beforeend', html);
+
             document.querySelectorAll('.row-select').forEach(cb => {
-                cb.addEventListener('change', (e) => {
+                cb.onchange = (e) => {
                     const regNumber = e.target.dataset.reg;
                     if (e.target.checked) {
                         selectedIds.add(regNumber);
@@ -124,25 +161,22 @@
                         selectedIds.delete(regNumber);
                     }
                     updateButtons();
-                });
+                    updateStats();
+                };
             });
         }
 
-        // Обновление кнопок
         function updateButtons() {
             const btn = document.getElementById('btn-select');
             btn.disabled = selectedIds.size === 0;
-            btn.textContent = selectedIds.size > 0 ? `➕ Добавить в выборку (${selectedIds.size})` : '➕ Добавить в выборку';
+            btn.textContent = selectedIds.size > 0 ? `Добавить в выборку (${selectedIds.size})` : 'Добавить в выборку';
         }
 
-        // Обновление статистики
         function updateStats() {
-            document.getElementById('stat-total').textContent = zakupki.length;
-            const selectedCount = zakupki.filter(z => z.is_selected).length;
-            document.getElementById('stat-selected').textContent = selectedCount;
+            document.getElementById('stat-total').textContent = totalAvailable;
+            document.getElementById('stat-selected').textContent = selectedIds.size;
         }
 
-        // Добавление в выборку
         async function addToSelection() {
             const btn = document.getElementById('btn-select');
             btn.disabled = true;
@@ -160,16 +194,16 @@
 
                 const result = await response.json();
                 showStatus(result.message, 'success');
-                
+
                 selectedIds.clear();
-                loadData(); // Перезагрузка
+                updateButtons();
+                loadData(true);
             } catch (error) {
                 showStatus('Ошибка: ' + error.message, 'error');
                 btn.disabled = false;
             }
         }
 
-        // Показ статуса
         function showStatus(message, type = 'info') {
             const el = document.getElementById('status-msg');
             el.textContent = message;
@@ -177,7 +211,6 @@
             setTimeout(() => el.textContent = '', 5000);
         }
 
-        // Select All
         document.getElementById('select-all').addEventListener('change', (e) => {
             const checkboxes = document.querySelectorAll('.row-select');
             checkboxes.forEach(cb => {
@@ -190,14 +223,13 @@
                 }
             });
             updateButtons();
+            updateStats();
         });
 
-        // Кнопки
         document.getElementById('btn-select').addEventListener('click', addToSelection);
-        document.getElementById('btn-refresh').addEventListener('click', loadData);
+        document.getElementById('btn-load-more').addEventListener('click', () => loadData(false));
 
-        // Загрузка при старте
-        loadData();
+        loadData(true);
     </script>
 </body>
 

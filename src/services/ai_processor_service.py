@@ -1,17 +1,18 @@
 """
-Сервис для ИИ-обработки закупок через OpenRouter.
+Сервис для ИИ-обработки закупок через Cerebras (OpenAI-compatible).
 """
 import json
 import os
 import re
+import time
 from typing import Optional, Dict, Any, List
 import requests
 from requests.exceptions import JSONDecodeError
 
 from config import (
-    OPENROUTER_API_KEY_ENV,
-    OPENROUTER_API_URL,
-    OPENROUTER_MODEL,
+    CEREBRAS_API_KEY_ENV,
+    CEREBRAS_API_URL,
+    CEREBRAS_MODEL,
 )
 from models.ai_result import AIResult
 from models.zakupka import Zakupka
@@ -21,15 +22,18 @@ from utils.logger import get_logger
 
 class AIProcessorService:
     """
-    Сервис для ИИ-обработки закупок через OpenRouter.
+    Сервис для ИИ-обработки закупок через Cerebras.
     
     Извлекает структурированные данные из текстов закупок
     (город, площадь, комнаты, цена и т.д.).
     """
     
-    MAX_PROMPT_CHARS = 200_000
-    HEAD_CHARS = 100_000
-    TAIL_CHARS = 50_000
+    # Ограничение по длине для моделей с контекстом ~8k
+    # Важно: сохраняем начало текста (печатная форма), обрезаем только хвост
+    # Ограничение по длине для моделей с контекстом 65k
+    MAX_PROMPT_CHARS = 60000
+    HEAD_CHARS = 60000
+    TAIL_CHARS = 0
     
     # Системный промпт для ИИ
     SYSTEM_PROMPT = '''Ты — эксперт по анализу документов государственных закупок недвижимости в России.
@@ -41,6 +45,7 @@ class AIProcessorService:
 {
   "zakupka_name": string | null,
   "address": string | null,
+  "city": string | null,
   "rooms": number | string | null,
   "wear_percent": number | null,
   "zakazchik": string | null,
@@ -79,12 +84,12 @@ class AIProcessorService:
         """
         Args:
             ai_result_repo: Репозиторий для сохранения результатов
-            api_key: API ключ OpenRouter (по умолчанию из env)
+            api_key: API ключ Cerebras (по умолчанию из env)
             model_name: Название модели (по умолчанию из config)
         """
         self.repo = ai_result_repo
-        self.api_key = api_key or os.getenv(OPENROUTER_API_KEY_ENV)
-        self.model_name = model_name or OPENROUTER_MODEL
+        self.api_key = api_key or os.getenv(CEREBRAS_API_KEY_ENV)
+        self.model_name = model_name or CEREBRAS_MODEL
         self.logger = get_logger("AIProcessorService")
     
     def _prepare_text(self, text: str) -> tuple[str, bool]:
@@ -92,14 +97,13 @@ class AIProcessorService:
         if len(text) <= self.MAX_PROMPT_CHARS:
             return text, False
         head = text[:self.HEAD_CHARS]
-        tail = text[-self.TAIL_CHARS:] if self.TAIL_CHARS < len(text) else ""
-        marker = "\n*** Текст был сокращён для ограничений LLM ***\n"
-        return head + marker + tail, True
+        marker = "\n*** Текст был сокращён по длине (сохранено начало) ***\n"
+        return head + marker, True
     
-    def _call_openrouter(self, text: str) -> Dict[str, Any]:
-        """Вызывает OpenRouter API и возвращает извлечённые поля."""
+    def _call_cerebras(self, text: str) -> Optional[Dict[str, Any]]:
+        """Вызывает Cerebras API и возвращает извлечённые поля."""
         if not self.api_key:
-            raise RuntimeError(f"Не найден API ключ в переменной окружения {OPENROUTER_API_KEY_ENV}")
+            raise RuntimeError(f"Не найден API ключ в переменной окружения {CEREBRAS_API_KEY_ENV}")
         
         prepared_text, truncated = self._prepare_text(text)
         user_prompt = (
@@ -114,6 +118,7 @@ class AIProcessorService:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         }
         payload = {
             "model": self.model_name,
@@ -123,28 +128,41 @@ class AIProcessorService:
             ],
             "temperature": 0.1,
             "response_format": {"type": "json_object"},
-            "transforms": ["middle-out"],
         }
         
-        resp = requests.post(
-            OPENROUTER_API_URL,
-            headers=headers,
-            json=payload,
-            timeout=120,
-        )
-        
-        self.logger.debug(f"OpenRouter status: {resp.status_code}")
-        
-        if resp.status_code != 200:
-            self.logger.error(f"Ошибка API: {resp.status_code}, {resp.text[:500]}")
-            return self._empty_result()
+        max_retries = 3
+        retry_sleep_s = 15
+
+        for attempt in range(1, max_retries + 1):
+            resp = requests.post(
+                CEREBRAS_API_URL,
+                headers=headers,
+                json=payload,
+                timeout=120,
+            )
+
+            self.logger.info(f"Cerebras status: {resp.status_code}")
+            self.logger.info(f"Cerebras response head: {resp.text[:500]}")
+
+            if resp.status_code == 429:
+                self.logger.warning(f"Лимит токенов превышен (429). Попытка {attempt}/{max_retries}.")
+                if attempt < max_retries:
+                    time.sleep(retry_sleep_s)
+                    continue
+                return None
+
+            if resp.status_code != 200:
+                self.logger.error(f"Ошибка API: {resp.status_code}, {resp.text[:500]}")
+                return None
+
+            break
         
         try:
             data = resp.json()
             content = data["choices"][0]["message"]["content"]
         except (JSONDecodeError, KeyError, IndexError) as e:
             self.logger.error(f"Ошибка парсинга ответа API: {e}")
-            return self._empty_result()
+            return None
         
         # Парсим JSON из content
         try:
@@ -157,14 +175,14 @@ class AIProcessorService:
             result = json.loads(content)
             # Проверяем что это словарь, а не список
             if isinstance(result, list):
-                self.logger.warning("OpenRouter вернул список, используем первый элемент или пустой результат")
+                self.logger.warning("Cerebras вернул список, используем первый элемент или пустой результат")
                 if result and isinstance(result[0], dict):
                     return result[0]
-                return self._empty_result()
+                return None
             return result
         except Exception as e:
             self.logger.error(f"Ошибка парсинга JSON от модели: {e}")
-            return self._empty_result()
+            return None
     
     def _empty_result(self) -> Dict[str, Any]:
         """Возвращает пустую структуру результата."""
@@ -282,6 +300,16 @@ class AIProcessorService:
                 clean = clean[len(prefix):].strip()
                 break
         return clean
+
+    def _derive_city_from_address(self, address: str) -> Optional[str]:
+        """??????? ??????? ?????????? ????? ?? ???? address."""
+        if not address:
+            return None
+        parts = [p.strip() for p in address.split(",") if p.strip()]
+        if not parts:
+            return None
+        city_raw = parts[-1]
+        return self._clean_city(city_raw)
     
     def process_zakupka(self, zakupka: Zakupka) -> Optional[AIResult]:
         """
@@ -298,8 +326,11 @@ class AIProcessorService:
             return None
         
         try:
-            # Вызываем OpenRouter
-            fields = self._call_openrouter(zakupka.combined_text)
+            # Вызываем Cerebras
+            fields = self._call_cerebras(zakupka.combined_text)
+            if not fields:
+                self.logger.error(f"ИИ не вернул данных для {zakupka.reg_number}")
+                return None
             
             # Обработка rooms_parsed
             # 1. Если есть rooms — парсим его
@@ -322,7 +353,11 @@ class AIProcessorService:
             
             # Очистка города от префиксов
             city = fields.get("city")
-            if city:
+            if not city:
+                derived = self._derive_city_from_address(fields.get("address"))
+                if derived:
+                    fields["city"] = derived
+            elif city:
                 fields["city"] = self._clean_city(city)
             
             # Обратная совместимость: floor_min → floor

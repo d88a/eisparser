@@ -15,9 +15,13 @@ class Settings:
     # Пути
     base_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent.parent)
     
-    # Gemini AI
-    gemini_api_key: str = ""
-    gemini_model: str = "google/gemini-2.0-flash-exp:free"
+    # AI (Cerebras OpenAI-compatible)
+    cerebras_api_key: str = ""
+    cerebras_base_url: str = "https://api.cerebras.ai/v1"
+    cerebras_model: str = "gpt-oss-120b"
+    
+    # Admin Auth
+    admin_password: str = "admin"  # Default password if not set
     
     # Database
     database_path: str = ""
@@ -29,6 +33,9 @@ class Settings:
     stage4_rate_limit_s: float = 2.0
     stage4_max_retries: int = 3
     stage4_scroll_timeout_s: int = 30
+
+    # AI
+    ai_stage2_delay_s: float = 2.0
     
     # Proxy
     proxy_url: Optional[str] = None
@@ -41,8 +48,13 @@ class Settings:
         # Загружаем .env если есть
         self._load_dotenv()
         
-        # Gemini
-        self.gemini_api_key = os.getenv("GEMINI_API_KEY", self.gemini_api_key)
+        # Cerebras
+        self.cerebras_api_key = os.getenv("CEREBRAS_API_KEY", self.cerebras_api_key)
+        self.cerebras_base_url = os.getenv("CEREBRAS_BASE_URL", self.cerebras_base_url)
+        self.cerebras_model = os.getenv("CEREBRAS_MODEL", self.cerebras_model)
+        
+        # Admin
+        self.admin_password = os.getenv("ADMIN_PASSWORD", self.admin_password)
         
         # Database - относительный путь от src/
         default_db = str(self.base_dir / "results" / "eis_data.db")
@@ -56,6 +68,9 @@ class Settings:
         self.stage4_headless = os.getenv("STAGE4_HEADLESS", "true").lower() == "true"
         self.stage4_use_real_chrome = os.getenv("STAGE4_USE_REAL_CHROME", "true").lower() == "true"
         self.stage4_page_timeout_s = int(os.getenv("STAGE4_PAGE_TIMEOUT_S", "60"))
+
+        # AI delay between Stage 2 requests
+        self.ai_stage2_delay_s = float(os.getenv("AI_STAGE2_DELAY_S", "2.0"))
         
         # Proxy
         self.proxy_url = os.getenv("PROXY_URL")
@@ -114,7 +129,7 @@ DEFAULT_HEADERS = {
 ZAKUPKI_DIR = str(settings.zakupki_dir)
 RESULTS_DIR = str(settings.results_dir)
 
-# Константы для OpenRouter (ai_extractor.py)
-OPENROUTER_API_KEY_ENV = "OPENROUTER_API_KEY"
-OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_MODEL = "google/gemini-2.0-flash-exp:free"
+# Константы для Cerebras (OpenAI-compatible)
+CEREBRAS_API_KEY_ENV = "CEREBRAS_API_KEY"
+CEREBRAS_API_URL = "https://api.cerebras.ai/v1/chat/completions"
+CEREBRAS_MODEL = "gpt-oss-120b"

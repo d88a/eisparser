@@ -1,22 +1,80 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ru">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EIS Parser - Stage 1 Intake</title>
+    <title>EIS Parser — Админ-панель</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .tab-bar {
+            display: flex;
+            gap: 10px;
+            margin: 15px 0;
+        }
+        .tab-btn {
+            background: #e2e8f0;
+            color: #1e293b;
+            border: none;
+            padding: 8px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .tab-btn.active {
+            background: #2563eb;
+            color: #fff;
+        }
+        .tab-panel {
+            display: none;
+        }
+        .tab-panel.active {
+            display: block;
+        }
+        .inline-control {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9em;
+            color: #475569;
+        }
+        .inline-control input {
+            width: 84px;
+            padding: 4px 6px;
+        }
+        .inline-status {
+            margin-top: 10px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            background: #f8fafc;
+            color: #334155;
+            border: 1px solid #e2e8f0;
+            display: none;
+        }
+        .inline-status.error {
+            background: #fff1f2;
+            border-color: #fecaca;
+            color: #991b1b;
+        }
+        .inline-status.success {
+            background: #ecfdf5;
+            border-color: #bbf7d0;
+            color: #166534;
+        }
+    </style>
 </head>
 
 <body>
     <div class="container">
-        <!-- A. Control Panel -->
         <header class="control-panel">
             <div class="branding">
-                <div class="logo">EIS Parser v2.0</div>
+                <div class="logo">EIS Parser v2.0 <span style="font-size: 0.6em; color: #64748b;">(Админ)</span></div>
                 <nav class="main-nav">
-                    <a href="/" class="active">Stage 1: Intake</a>
-                    <a href="/stage2">Stage 2: AI Review</a>
+                    <a href="/" class="active">Закупки</a>
+                    <a href="/stage2">Этап 2: ИИ-анализ</a>
+                    <a href="/stage3">Этап 3: Ссылки 2ГИС</a>
+                    <a href="/stage4">Этап 4: Сбор объявлений</a>
+                    <a href="/admin/logout" style="color: #ef4444; margin-left: 20px;">Выход</a>
                 </nav>
             </div>
 
@@ -26,45 +84,76 @@
                     <span class="value" id="stat-total">0</span>
                 </div>
                 <div class="stat-item approved">
-                    <span class="label">Выбрано</span>
+                    <span class="label">Одобрено</span>
                     <span class="value" id="stat-selected">0</span>
                 </div>
             </div>
         </header>
 
-        <!-- D. Actions (Top/Bottom) -->
-        <div class="actions-bar">
-            <button id="btn-run-stage1" class="btn btn-primary" style="background-color: #64748b; margin-right: 10px;">
-                📥 Загрузить закупки с ЕИС
-            </button>
-            <span id="stage1-status" class="status-msg" style="margin-right: 20px;"></span>
-
-            <button id="btn-add-to-stage2" class="btn btn-primary" disabled>
-                ➕ Добавить закупки
-            </button>
-            <span id="stage2-status" class="status-msg"></span>
+        <div class="tab-bar">
+            <button id="tab-new" class="tab-btn active">Загрузка новых</button>
+            <button id="tab-all" class="tab-btn">Все закупки</button>
         </div>
 
-        <!-- B. Table -->
-        <div class="table-container">
-            <table id="zakupki-table">
-                <thead>
-                    <tr>
-                        <th width="40"><input type="checkbox" id="select-all" onclick="toggleSelectAll(this)"></th>
-                        <th width="180">Рег. №</th>
-                        <th width="100">Дата</th>
-                        <th width="130">Окончание заявок</th>
-                        <th>Название закупки</th>
-                    </tr>
-                </thead>
-                <tbody id="zakupki-body">
-                    <!-- Rows will be injected by JS -->
-                </tbody>
-            </table>
+        <div id="panel-new" class="tab-panel active">
+            <div class="actions-bar">
+                <label class="inline-control">
+                    Сколько закупок показать:
+                    <input type="number" id="stage1-limit" min="1" max="100" step="1" value="10">
+                </label>
+                <button id="btn-refresh-stage1" class="btn btn-primary" style="background-color: #64748b; margin-right: 10px;">
+                    Показать новые закупки
+                </button>
+
+                <button id="btn-save-selected" class="btn btn-primary" disabled>
+                    Скачать и сохранить выбранные
+                </button>
+            </div>
+            <div id="stage1-status" class="inline-status"></div>
+
+            <div class="table-container">
+                <table id="zakupki-table-new">
+                    <thead>
+                        <tr>
+                            <th width="40"><input type="checkbox" id="select-all" onclick="toggleSelectAll(this)"></th>
+                            <th width="180">Рег. №</th>
+                            <th>Название закупки</th>
+                            <th width="140">Цена</th>
+                            <th width="140">Окончание</th>
+                        </tr>
+                    </thead>
+                    <tbody id="zakupki-body-new">
+                        <!-- Rows will be injected by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="panel-all" class="tab-panel">
+            <div class="table-container">
+                <table id="zakupki-table-all">
+                    <thead>
+                        <tr>
+                            <th width="180">Рег. №</th>
+                            <th>Название закупки</th>
+                            <th width="140">Цена</th>
+                            <th width="140">Окончание</th>
+                            <th width="140">Статус</th>
+                        </tr>
+                    </thead>
+                    <tbody id="zakupki-body-all">
+                        <!-- Rows will be injected by JS -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="load-more-container">
+                <button id="btn-load-more-all" class="btn" style="background-color: #f1f5f9; color: #334155; display: none;">
+                    Показать ещё
+                </button>
+            </div>
         </div>
     </div>
 
-    <!-- Scripts -->
     <script src="/static/js/app.js"></script>
 </body>
 

@@ -1,0 +1,95 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Этап 4: Сбор объявлений — EIS Parser</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .main-header { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background: #fff; border-bottom: 1px solid #eee; }
+        .stage4-container { display: flex; height: calc(100vh - 80px); gap: 20px; padding: 20px; }
+        .list-panel { width: 410px; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); overflow-y: auto; display: flex; flex-direction: column; }
+        .actions-block { padding: 12px; border-bottom: 1px solid #eee; background: #f8fafc; display: flex; flex-direction: column; gap: 10px; }
+        .actions-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .inline-control { display: inline-flex; align-items: center; gap: 8px; font-size: 0.9em; color: #475569; }
+        .inline-control input[type="number"] { width: 70px; padding: 4px 6px; }
+        .status-box { display: none; padding: 8px 10px; border: 1px solid #e2e8f0; background: #f8fafc; color: #334155; border-radius: 6px; font-size: 0.9em; }
+        .status-box.error { border-color: #fecaca; background: #fff1f2; color: #991b1b; }
+        .status-box.success { border-color: #bbf7d0; background: #ecfdf5; color: #166534; }
+        .error-panel { margin: 8px 20px 0 20px; padding: 10px 12px; border: 1px solid #fecaca; background: #fff1f2; color: #991b1b; border-radius: 8px; display: none; }
+        .error-row { font-size: 0.9em; line-height: 1.4; margin: 4px 0; }
+        .list-item { padding: 12px 14px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; gap: 8px; align-items: center; }
+        .list-item:hover { background: #f8f9fa; }
+        .list-item.active { background: #e3f2fd; border-left: 4px solid #2563eb; }
+        .list-item-content { flex: 1; }
+        .list-item-header { font-weight: 700; font-size: 0.85em; margin-bottom: 4px; }
+        .list-item-desc { font-size: 0.78em; color: #666; }
+        .workspace { flex: 1; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; overflow: hidden; }
+        .workspace-header { padding: 14px 16px; border-bottom: 1px solid #eee; background: #f8f9fa; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .workspace-body { padding: 14px; overflow-y: auto; background: #fafafa; flex: 1; }
+        .listing-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+        .listing-title { font-weight: 700; margin-bottom: 6px; }
+        .listing-meta { color: #475569; font-size: 0.9em; line-height: 1.6; }
+        .links-row { margin-top: 6px; font-size: 0.88em; }
+        .source-link { color: #2563eb; text-decoration: none; }
+        .source-link:hover { text-decoration: underline; }
+        .empty-state { display: flex; align-items: center; justify-content: center; height: 100%; color: #999; font-size: 1.1em; }
+    </style>
+</head>
+
+<body>
+    <header class="main-header">
+        <div class="logo">EIS Parser v2.0 <span style="font-size: 0.6em; color: #64748b;">(Админ)</span></div>
+        <nav class="main-nav">
+            <a href="/">Этап 1: Загрузка</a>
+            <a href="/stage2">Этап 2: ИИ-анализ</a>
+            <a href="/stage3">Этап 3: Ссылки 2ГИС</a>
+            <a href="/stage4" class="active">Этап 4: Сбор объявлений</a>
+            <a href="/admin/logout" style="color: #ef4444; margin-left: 20px;">Выход</a>
+        </nav>
+    </header>
+
+    <div id="stage4-errors" class="error-panel"></div>
+
+    <div class="stage4-container">
+        <div class="list-panel">
+            <div class="actions-block">
+                <div class="actions-row">
+                    <label class="inline-control">
+                        <input type="checkbox" id="select-all-stage4">
+                        Выделить все на странице
+                    </label>
+                </div>
+                <div class="actions-row">
+                    <label class="inline-control">
+                        Сколько объявлений:
+                        <input type="number" id="top-n-stage4" min="1" max="200" value="20">
+                    </label>
+                    <label class="inline-control">
+                        <input type="checkbox" id="details-stage4">
+                        Собирать характеристики
+                    </label>
+                </div>
+                <div class="actions-row">
+                    <button id="btn-run-stage4" class="btn btn-primary" disabled>Собрать объявления</button>
+                </div>
+                <div id="stage4-status" class="status-box"></div>
+            </div>
+
+            <div id="stage4-list"></div>
+            <div class="load-more-container" style="padding: 10px; text-align:center;">
+                <button id="btn-load-more-stage4" class="btn" style="background:#f1f5f9; color:#334155; display:none;">Показать ещё</button>
+            </div>
+        </div>
+
+        <div class="workspace" id="stage4-workspace">
+            <div class="empty-state">Выберите закупку слева</div>
+        </div>
+    </div>
+
+    <script src="/static/js/stage4.js"></script>
+</body>
+
+</html>
+

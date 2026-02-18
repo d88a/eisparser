@@ -1,103 +1,112 @@
-# EIS Parser — анализ госзакупок недвижимости
+﻿# EIS Parser — админ-панель модерации закупок (MVP)
 
-## Обзор
-EIS Parser — пайплайн обработки госзакупок недвижимости из ЕИС:
-1. Загрузка закупок и документов с ЕИС.
-2. ИИ‑извлечение параметров объекта (город, площадь, комнаты и т.д.).
-3. Генерация ссылки 2ГИС по параметрам.
-4. Сбор рыночных объявлений (2ГИС/ДомКлик/Циан) для сравнения.
+## Назначение
+Система автоматизирует обработку закупок недвижимости по этапам:
+1. Stage 1: загрузка списка закупок с ЕИС и сохранение выбранных.
+2. Stage 2: ручной ИИ-анализ выбранных закупок.
+3. Stage 3: генерация ссылок 2ГИС по ИИ-результатам.
+4. Stage 4: сбор объявлений по ссылке, сформированной на Stage 3.
 
-## Актуальная структура проекта
+Текущий продуктовый фокус: стабильная админка Stage 1–4.
 
-```
+## Контракт Stage 3 -> Stage 4
+- Каноническая рабочая ссылка процесса хранится в `zakupki.two_gis_url` и формируется на Stage 3.
+- Stage 4 запускается только по этой канонической ссылке и не пересчитывает ее.
+- Если `zakupki.two_gis_url` отсутствует, в UI показывается предупреждение: `Ссылки нет (Этап 3)`.
+- Ссылки карточек объявлений (`.../ad/...`) и внешние ссылки (`cian`, `domclick`, `avito`) не являются ссылкой процесса Stage 3.
+
+## Структура проекта
+```text
 eisparser/
 ├── src/
-│   ├── api/                # FastAPI (UI + API)
-│   ├── config/             # Настройки и константы
-│   ├── gis/                # Генерация URL 2ГИС
-│   ├── models/             # Модели данных
-│   ├── repositories/       # Репозитории SQLite
-│   ├── services/           # Бизнес‑логика и сервисы
-│   ├── utils/              # Логирование и утилиты
-│   ├── web/                # Шаблоны и статические файлы UI
-│   ├── main.py             # CLI (запуск стадий и сервера)
-│   └── pipeline.py         # Оркестратор стадий
-├── docs/                   # Документация
-├── map/                    # Геоданные
-├── results/                # SQLite БД
-└── tests/                  # Тесты
-```
-
-## Как запустить сервер (UI)
-
-### Вариант 1 — через CLI
-```bash
-python src/main.py server --host 127.0.0.1 --port 8000
-```
-
-### Вариант 2 — напрямую через uvicorn
-```bash
-uvicorn api.app:app --reload --host 127.0.0.1 --port 8000
-```
-
-UI будет доступен по адресу: `http://127.0.0.1:8000/`.
-
-## CLI: запуск стадий пайплайна
-
-### Stage 1 — загрузка закупок
-```bash
-python src/main.py stage1 --limit 10
-```
-
-### Stage 2 — ИИ‑обработка
-```bash
-python src/main.py stage2 --limit 10
-```
-
-### Stage 3 — генерация ссылок 2ГИС
-```bash
-python src/main.py stage3 --limit 10
-```
-
-### Stage 4 — сбор объявлений
-```bash
-python src/main.py stage4 --top-n 20 --limit 10 --details
-```
-
-### Статистика
-```bash
-python src/main.py stats
+│   ├── api/                # FastAPI + роуты
+│   ├── config/             # настройки и .env
+│   ├── gis/                # генерация URL 2ГИС
+│   ├── models/             # dataclass-модели
+│   ├── repositories/       # доступ к SQLite
+│   ├── services/           # бизнес-логика
+│   ├── web/                # templates + static
+│   ├── pipeline.py         # оркестратор стадий
+│   └── main.py             # CLI и запуск сервера
+├── docs/
+├── results/                # БД SQLite
+├── map/                    # геоданные
+└── zakupki/                # временные файлы загрузки
 ```
 
 ## Конфигурация
-Настройки задаются через `src/config/settings.py` и переменные окружения.
+Файл: `src/.env`
 
-Ключевые параметры:
-- `GEMINI_API_KEY` — ключ Gemini (для ИИ‑анализа, если используется).
-- `DATABASE_PATH` — путь к SQLite БД (по умолчанию `results/eis_data.db`).
-- `COORDINATES_CSV_PATH` — путь к CSV с координатами городов.
-- `STAGE4_HEADLESS`, `STAGE4_USE_REAL_CHROME` — режим запуска браузера.
+Ключевые переменные:
+- `CEREBRAS_API_KEY`
+- `CEREBRAS_BASE_URL`
+- `CEREBRAS_MODEL`
+- `ADMIN_PASSWORD`
+- `DATABASE_PATH`
+- `COORDINATES_CSV_PATH`
+- `AI_STAGE2_DELAY_S`
+- `STAGE4_HEADLESS`
+- `STAGE4_USE_REAL_CHROME`
+- `PROXY_URL` (опционально)
 
-## База данных (SQLite)
+## Развёртывание на новом Windows ПК
 
-### Таблица `zakupki`
-- `reg_number` (PK)
-- `description`, `link`, `combined_text`
-- `two_gis_url`
-- `status`, `prepared_by_user_id`, `prepared_at`
+### 1. Установка Python
+- Ставим Python 3.11.x (x64).
+- Проверяем:
+```powershell
+python --version
+where.exe python
+```
+Ожидается путь к реальному `python.exe` (например `C:\Program Files\Python311\python.exe`), а не только `WindowsApps`.
 
-### Таблица `ai_results`
-- `reg_number` (PK)
-- `city`, `area_min_m2`, `rooms_parsed`, `floor`, `price_rub`
+### 2. Создание виртуального окружения
+В корне проекта:
+```powershell
+cd D:\Anna\eisparser
+python -m venv .venv
+```
 
-### Таблица `listings`
-- `zakupka_reg_number`, `rank`, `price_rub`, `address`, `rooms`, `area_m2`, `building_year`, `external_url`
+### 3. Активация `.venv`
+Если PowerShell блокирует скрипты:
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+Затем:
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
 
-### Дополнительно
-- `users`, `decisions`, `user_overrides` — для human‑in‑the‑loop и переопределений.
+### 4. Установка зависимостей
+```powershell
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
 
-## Важно
-- **Stage 4 должен запускаться пользователем** (данные объявлений быстро устаревают).
-- **AIResult read‑only**: правки делаются через `user_overrides`.
-- Для 2ГИС может требоваться VPN (зарубежные IP блокируются).
+### 5. Проверка `.env`
+- Убедиться, что в `src/.env` заданы минимум:
+  - `ADMIN_PASSWORD`
+  - `CEREBRAS_API_KEY`
+  - `DATABASE_PATH` (если нужен нестандартный путь)
 
+### 6. Запуск сервера
+```powershell
+python src\main.py server --host 127.0.0.1 --port 8000
+```
+
+### 7. Вход в админку
+- Открыть `http://127.0.0.1:8000/admin/login`
+- Ввести пароль из `ADMIN_PASSWORD`.
+
+## Полезные команды
+```powershell
+python src\main.py stats
+python src\main.py stage1 --limit 10
+python src\main.py stage2 --limit 5
+python src\main.py stage3 --limit 5
+python src\main.py stage4 --top-n 5 --limit 2 --details
+```
+
+## Примечания
+- Для парсинга 2ГИС на Stage 4 может понадобиться российский IP/прокси.
+- Если страница не открывается, сначала проверьте, не занят ли порт 8000.

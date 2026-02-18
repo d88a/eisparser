@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+jinja2
+python-multipart
+requests
+beautifulsoup4
+openpyxl
+pdfplumber
+python-docx
+olefile
+xlrd
+playwright
+playwright-stealth

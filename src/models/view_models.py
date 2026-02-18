@@ -21,11 +21,11 @@ class ZakupkaStageView:
     stage: int
 
     # Решение пользователя
-    my_decision: Optional[str]
-    my_decision_comment: Optional[str]
+    my_decision: Optional[str] = None
+    my_decision_comment: Optional[str] = None
     
     # Результаты ИИ - ВСЕ ПОЛЯ из AIResult
-    has_ai_result: bool
+    has_ai_result: bool = False
     ai_zakupka_name: Optional[str] = None
     ai_address: Optional[str] = None
     ai_city: Optional[str] = None
@@ -46,3 +46,4 @@ class ZakupkaStageView:
     
     # Stage 2 specific
     combined_text: Optional[str] = None
+    processed_at: Optional[str] = None

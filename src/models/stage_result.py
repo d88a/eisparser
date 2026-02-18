@@ -1,4 +1,4 @@
-"""
+﻿"""
 Модель результата выполнения этапа.
 """
 from dataclasses import dataclass, field
@@ -11,13 +11,13 @@ class StageResult:
     Унифицированный результат выполнения этапа пайплайна.
     Используется для CLI и дашборда.
     """
-    
-    stage: int                          # Номер этапа (1, 2, 3, 4)
-    success: bool                       # Успешно ли выполнен
-    message: str                        # Сообщение для пользователя
-    data: Dict[str, Any] = field(default_factory=dict)  # Данные для отображения
-    errors: List[str] = field(default_factory=list)     # Список ошибок
-    
+
+    stage: int
+    success: bool
+    message: str
+    data: Dict[str, Any] = field(default_factory=dict)
+    errors: List[str] = field(default_factory=list)
+
     def to_dict(self) -> dict:
         """Преобразует в словарь для JSON."""
         return {
@@ -25,9 +25,9 @@ class StageResult:
             "success": self.success,
             "message": self.message,
             "data": self.data,
-            "errors": self.errors
+            "errors": self.errors,
         }
-    
+
     def __str__(self) -> str:
-        status = "✅" if self.success else "❌"
+        status = "[OK]" if self.success else "[ERROR]"
         return f"{status} Stage {self.stage}: {self.message}"

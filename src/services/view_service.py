@@ -49,10 +49,9 @@ class ViewService:
             
             # SPECIAL HANDLING FOR STAGE 2 (AI Review)
             elif stage == 2:
-                # Only show items that were EXPLICITLY selected on Stage 1
-                # (decision='selected', not 'approved' from old logic)
-                selected_ids = self.db.decisions.get_selected_reg_numbers(user_id, 1)
-                zakupki = self.db.zakupki.get_by_reg_numbers(selected_ids)
+                # Этап 2 показывает только одобренные на Этапе 1
+                approved_ids = self.db.decisions.get_approved_reg_numbers(user_id, 1)
+                zakupki = self.db.zakupki.get_by_reg_numbers(approved_ids)
             
             else:
                 # For stage > 2 (future)
@@ -89,6 +88,7 @@ class ViewService:
                     bid_end_date=z.bid_end_date or "",
                     initial_price=z.initial_price,
                     stage=stage,
+                    processed_at=z.processed_at.isoformat() if z.processed_at else None,
                     my_decision=decision.decision if decision else None,
                     my_decision_comment=decision.comment if decision else None,
                     has_ai_result=ai_result is not None,

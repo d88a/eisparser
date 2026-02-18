@@ -1,24 +1,37 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ru">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EIS Parser - Мои выборки</title>
+    <title>Мои выборки</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .nav-user a {
+            color: #64748b;
+            text-decoration: none;
+            margin-right: 15px;
+        }
+        .nav-user a.active {
+            color: #2563eb;
+            font-weight: bold;
+        }
+    </style>
 </head>
 
 <body>
     <div class="container">
-        <!-- Header -->
         <header class="control-panel">
             <div class="branding">
                 <div class="logo">EIS Parser v2.0</div>
-                <nav class="main-nav">
-                    <a href="/">Stage 1: Intake</a>
-                    <a href="/stage2">Stage 2: AI Review</a>
-                    <a href="/user/available">Доступные закупки</a>
-                    <a href="/user/selections" class="active">Мои выборки</a>
+                <nav class="main-nav nav-user">
+                    {% if is_admin %}
+                    <a href="/user/available">Этап 3: Проверка</a>
+                    <a href="/user/selections" class="active">Этап 4: Сбор объявлений</a>
+                    {% else %}
+                    <a href="/user/selections" class="active">Этап 4: Сбор объявлений</a>
+                    {% endif %}
+                    <a href="/" style="margin-left: 20px;">Выход</a>
                 </nav>
             </div>
 
@@ -30,21 +43,19 @@
             </div>
         </header>
 
-        <!-- Actions -->
         <div class="actions-bar">
             <button id="btn-run-stage4" class="btn btn-primary" disabled>
-                🚀 Запустить сбор объявлений
+                Запустить сбор объявлений
             </button>
             <button id="btn-clear" class="btn" style="background-color: #ef4444; margin-left: 10px;" disabled>
-                🗑️ Очистить выборку
+                Очистить выборку
             </button>
             <button id="btn-refresh" class="btn" style="background-color: #64748b; margin-left: 10px;">
-                🔄 Обновить
+                Обновить
             </button>
             <span id="status-msg" class="status-msg"></span>
         </div>
 
-        <!-- Table -->
         <div class="table-container">
             <table id="zakupki-table">
                 <thead>
@@ -71,15 +82,14 @@
     </div>
 
     <script>
-        const userId = 1; // Hardcoded для MVP
+        const userId = 1;
         let zakupki = [];
 
-        // Загрузка данных
         async function loadData() {
             try {
                 const response = await fetch(`/api/user/selections?user_id=${userId}`);
                 const data = await response.json();
-                
+
                 zakupki = data.zakupki || [];
                 renderTable();
                 updateStats();
@@ -89,10 +99,9 @@
             }
         }
 
-        // Отрисовка таблицы
         function renderTable() {
             const tbody = document.getElementById('zakupki-tbody');
-            
+
             if (zakupki.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px;">Нет выбранных закупок. <a href="/user/available">Выберите закупки</a></td></tr>';
                 return;
@@ -100,20 +109,19 @@
 
             tbody.innerHTML = zakupki.map(z => `
                 <tr>
-                    <td>${z.reg_number}</td>
-                    <td>${z.description || '-'}</td>
+                    <td><a href="https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=${z.reg_number}" target="_blank">${z.reg_number}</a></td>
+                    <td>${z.description ? z.description.substring(0, 100) + '...' : '-'}</td>
                     <td>${z.city || '-'}</td>
                     <td>${z.area || '-'}</td>
                     <td>${z.rooms || '-'}</td>
                     <td>${z.initial_price ? (z.initial_price / 1000000).toFixed(2) + ' млн' : '-'}</td>
-                    <td>${z.two_gis_url ? '<a href="' + z.two_gis_url + '" target="_blank">🔗 Открыть</a>' : '-'}</td>
+                    <td>${z.two_gis_url ? '<a href="' + z.two_gis_url + '" target="_blank">Открыть</a>' : '-'}</td>
                     <td>
-                        <button class="btn-small btn-remove" data-reg="${z.reg_number}">❌</button>
+                        <button class="btn-small btn-remove" data-reg="${z.reg_number}">Удалить</button>
                     </td>
                 </tr>
             `).join('');
 
-            // Обработчики удаления
             document.querySelectorAll('.btn-remove').forEach(btn => {
                 btn.addEventListener('click', async (e) => {
                     const regNumber = e.target.dataset.reg;
@@ -122,19 +130,16 @@
             });
         }
 
-        // Обновление кнопок
         function updateButtons() {
             const hasItems = zakupki.length > 0;
             document.getElementById('btn-run-stage4').disabled = !hasItems;
             document.getElementById('btn-clear').disabled = !hasItems;
         }
 
-        // Обновление статистики
         function updateStats() {
             document.getElementById('stat-total').textContent = zakupki.length;
         }
 
-        // Удаление из выборки
         async function removeFromSelection(regNumber) {
             try {
                 const response = await fetch('/api/user/unselect', {
@@ -146,7 +151,7 @@
                     })
                 });
 
-                const result = await response.json();
+                await response.json();
                 showStatus('Удалено из выборки', 'success');
                 loadData();
             } catch (error) {
@@ -154,11 +159,10 @@
             }
         }
 
-        // Запуск Stage 4
         async function runStage4() {
             const btn = document.getElementById('btn-run-stage4');
             btn.disabled = true;
-            btn.textContent = '⏳ Сбор объявлений...';
+            btn.textContent = 'Сбор объявлений...';
 
             try {
                 const response = await fetch('/api/user/run_stage4', {
@@ -173,26 +177,24 @@
 
                 const result = await response.json();
                 showStatus(result.message, result.status === 'ok' ? 'success' : 'error');
-                
+
                 if (result.status === 'ok') {
-                    loadData(); // Выборка очищена после успеха
+                    loadData();
                 }
             } catch (error) {
                 showStatus('Ошибка: ' + error.message, 'error');
             } finally {
                 btn.disabled = false;
-                btn.textContent = '🚀 Запустить сбор объявлений';
+                btn.textContent = 'Запустить сбор объявлений';
             }
         }
 
-        // Очистка выборки
         async function clearSelection() {
             if (!confirm('Очистить всю выборку?')) return;
 
             try {
-                // Получаем все reg_numbers
                 const regNumbers = zakupki.map(z => z.reg_number);
-                
+
                 const response = await fetch('/api/user/unselect', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -202,7 +204,7 @@
                     })
                 });
 
-                const result = await response.json();
+                await response.json();
                 showStatus('Выборка очищена', 'success');
                 loadData();
             } catch (error) {
@@ -210,7 +212,6 @@
             }
         }
 
-        // Показ статуса
         function showStatus(message, type = 'info') {
             const el = document.getElementById('status-msg');
             el.textContent = message;
@@ -218,12 +219,10 @@
             setTimeout(() => el.textContent = '', 5000);
         }
 
-        // Кнопки
         document.getElementById('btn-run-stage4').addEventListener('click', runStage4);
         document.getElementById('btn-clear').addEventListener('click', clearSelection);
         document.getElementById('btn-refresh').addEventListener('click', loadData);
 
-        // Загрузка при старте
         loadData();
     </script>
 </body>

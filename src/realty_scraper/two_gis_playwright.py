@@ -205,6 +205,21 @@ async def collect_listings_async(
     return result
 
 
+def _normalize_href(href: Optional[str]) -> str:
+    if not href:
+        return ""
+    if href.startswith("//"):
+        return f"https:{href}"
+    if href.startswith("/"):
+        return f"https://2gis.ru{href}"
+    return href
+
+
+def _is_2gis_ad_url(url: str) -> bool:
+    # Card links must point to a listing page, not to search pages.
+    return bool(re.search(r"^https?://(?:[^/]+\.)?2gis\.ru/.*/ad/", url))
+
+
 async def parse_card_async(card, rank: int) -> Optional[Listing]:
     """Асинхронно парсит данные с одной карточки."""
     try:
@@ -241,31 +256,31 @@ async def parse_card_async(card, rank: int) -> Optional[Listing]:
                         address = line.strip()
                         break
         
-        # Ссылка 2ГИС
-        link_el = await card.query_selector('a[href]')
-        link = await link_el.get_attribute("href") if link_el else ""
-        if link and link.startswith('/'):
-            link = f"https://2gis.ru{link}"
-        
-        # Ищем внешнюю ссылку на ДомКлик/Циан
+        # Ищем ссылки карточки объявления и внешние источники
+        link = ""
         external_url = None
         external_source = None
         all_links = await card.query_selector_all('a[href]')
+
         for a in all_links:
-            href = await a.get_attribute("href")
+            href = _normalize_href(await a.get_attribute("href"))
             if href:
                 href_lower = href.lower()
-                if 'domclick' in href_lower or 'dom.click' in href_lower:
+
+                if not link and _is_2gis_ad_url(href):
+                    link = href
+
+                if not external_url and ('domclick' in href_lower or 'dom.click' in href_lower):
                     external_url = href
                     external_source = 'domclick'
-                    break
-                elif 'cian' in href_lower:
+                elif not external_url and 'cian' in href_lower:
                     external_url = href
                     external_source = 'cian'
-                    break
-                elif 'avito' in href_lower:
+                elif not external_url and 'avito' in href_lower:
                     external_url = href
                     external_source = 'avito'
+
+                if link and external_url:
                     break
         
         # Парсим характеристики

@@ -110,7 +110,7 @@ class DecisionRepository(BaseRepository[Decision]):
         sql = """
         SELECT * FROM decisions 
         WHERE user_id = ? AND reg_number = ? AND stage = ?
-        ORDER BY created_at DESC
+        ORDER BY created_at DESC, id DESC
         LIMIT 1
         """
         try:
@@ -123,35 +123,42 @@ class DecisionRepository(BaseRepository[Decision]):
         return None
 
     def get_approved_reg_numbers(self, user_id: int, stage: int) -> List[str]:
-        """
-        Возвращает список reg_number, которые имеют АКТУАЛЬНЫЙ статус approved на данном этапе.
-        Актуальный = последнее по времени решение пользователя для этой закупки.
-        """
-        # Сначала получаем последние решения для каждой закупки на этом этапе
-        # Затем фильтруем те, где decision = 'approved'
+        """Returns reg_number values whose latest decision is approved for the stage."""
         sql = """
-        SELECT reg_number
-        FROM (
-            SELECT reg_number, decision, MAX(created_at) as last_date
+        SELECT d.reg_number
+        FROM decisions d
+        JOIN (
+            SELECT reg_number, MAX(id) AS max_id
             FROM decisions
             WHERE user_id = ? AND stage = ?
             GROUP BY reg_number
-        )
-        WHERE decision IN ('approved', 'selected')
+        ) latest
+          ON d.reg_number = latest.reg_number
+         AND d.id = latest.max_id
+        WHERE d.user_id = ? AND d.stage = ? AND d.decision = 'approved'
         """
         try:
             with self.get_connection() as conn:
-                rows = conn.execute(sql, (user_id, stage)).fetchall()
+                rows = conn.execute(sql, (user_id, stage, user_id, stage)).fetchall()
                 return [row["reg_number"] for row in rows]
         except Exception as e:
-            self.logger.error(f"Ошибка получения approved закупок: {e}")
+            self.logger.error(f"Error fetching approved decisions: {e}")
             return []
 
+    def delete_by_decision_value(self, decision_value: str) -> int:
+        """Deletes all decisions with the given decision value."""
+        sql = "DELETE FROM decisions WHERE decision = ?"
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.execute(sql, (decision_value,))
+                conn.commit()
+                return cursor.rowcount or 0
+        except Exception as e:
+            self.logger.error(f"Error deleting decisions '{decision_value}': {e}")
+            return 0
+
     def get_selected_reg_numbers(self, user_id: int, stage: int) -> List[str]:
-        """
-        Возвращает список reg_number с АКТУАЛЬНЫМ статусом 'selected' на данном этапе.
-        Используется для Stage 2 (только явно выбранные на Stage 1).
-        """
+        """Returns reg_number values whose latest decision is selected for the stage."""
         sql = """
         SELECT reg_number
         FROM (
@@ -167,5 +174,5 @@ class DecisionRepository(BaseRepository[Decision]):
                 rows = conn.execute(sql, (user_id, stage)).fetchall()
                 return [row["reg_number"] for row in rows]
         except Exception as e:
-            self.logger.error(f"Ошибка получения selected закупок: {e}")
+            self.logger.error(f"Error fetching selected decisions: {e}")
             return []

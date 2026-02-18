@@ -1,5 +1,5 @@
-"""
-Pipeline — оркестратор для объединения всех стадий обработки.
+﻿"""
+Pipeline вЂ” РѕСЂРєРµСЃС‚СЂР°С‚РѕСЂ РґР»СЏ РѕР±СЉРµРґРёРЅРµРЅРёСЏ РІСЃРµС… СЃС‚Р°РґРёР№ РѕР±СЂР°Р±РѕС‚РєРё.
 """
 from typing import Optional, List
 from config.settings import settings
@@ -19,39 +19,39 @@ from utils.logger import get_logger
 
 class Pipeline:
     """
-    Оркестратор для выполнения полного пайплайна обработки закупок.
+    РћСЂРєРµСЃС‚СЂР°С‚РѕСЂ РґР»СЏ РІС‹РїРѕР»РЅРµРЅРёСЏ РїРѕР»РЅРѕРіРѕ РїР°Р№РїР»Р°Р№РЅР° РѕР±СЂР°Р±РѕС‚РєРё Р·Р°РєСѓРїРѕРє.
     
-    Стадии:
-    1. Загрузка закупок с ЕИС
-    2. ИИ-анализ текстов
-    3. Генерация ссылок 2ГИС
-    4. Сбор объявлений
+    РЎС‚Р°РґРёРё:
+    1. Р—Р°РіСЂСѓР·РєР° Р·Р°РєСѓРїРѕРє СЃ Р•РРЎ
+    2. РР-Р°РЅР°Р»РёР· С‚РµРєСЃС‚РѕРІ
+    3. Р“РµРЅРµСЂР°С†РёСЏ СЃСЃС‹Р»РѕРє 2Р“РРЎ
+    4. РЎР±РѕСЂ РѕР±СЉСЏРІР»РµРЅРёР№
     """
     
     def __init__(self, db_path: str = None):
         """
         Args:
-            db_path: Путь к БД. Если не указан, берётся из settings.
+            db_path: РџСѓС‚СЊ Рє Р‘Р”. Р•СЃР»Рё РЅРµ СѓРєР°Р·Р°РЅ, Р±РµСЂС‘С‚СЃСЏ РёР· settings.
         """
         self.logger = get_logger("Pipeline")
         
-        # Инициализируем DatabaseService
+        # РРЅРёС†РёР°Р»РёР·РёСЂСѓРµРј DatabaseService
         self.db = DatabaseService(db_path)
         
-        # Инициализируем сервисы с репозиториями из DatabaseService
+        # РРЅРёС†РёР°Р»РёР·РёСЂСѓРµРј СЃРµСЂРІРёСЃС‹ СЃ СЂРµРїРѕР·РёС‚РѕСЂРёСЏРјРё РёР· DatabaseService
         self.eis = EISService(self.db.zakupki)
         self.ai = AIService(self.db.ai_results)
         self.gis = GISService()
         self.scraper = ScraperService(self.db.listings)
         
-        # Новые ООП-сервисы для Stage 1 и 2
+        # РќРѕРІС‹Рµ РћРћРџ-СЃРµСЂРІРёСЃС‹ РґР»СЏ Stage 1 Рё 2
         self.eis_downloader = EISDownloaderService(self.db.zakupki)
         self.ai_processor = AIProcessorService(self.db.ai_results)
         
         self.logger.info("Pipeline инициализирован")
     
     def init_database(self) -> bool:
-        """Инициализирует базу данных."""
+        """РРЅРёС†РёР°Р»РёР·РёСЂСѓРµС‚ Р±Р°Р·Сѓ РґР°РЅРЅС‹С…."""
         return self.db.init_database()
     
     def run_stage3_for_zakupka(
@@ -61,36 +61,50 @@ class Pipeline:
         user_id: int = 1
     ) -> Optional[str]:
         """
-        Стадия 3: Генерация ссылки 2ГИС для одной закупки.
+        РЎС‚Р°РґРёСЏ 3: Р“РµРЅРµСЂР°С†РёСЏ СЃСЃС‹Р»РєРё 2Р“РРЎ РґР»СЏ РѕРґРЅРѕР№ Р·Р°РєСѓРїРєРё.
         Uses effective_value = user_override ?? ai_value.
         
         Args:
-            reg_number: Номер закупки
-            ai_result: Результат ИИ-анализа
-            user_id: ID пользователя для overrides
+            reg_number: РќРѕРјРµСЂ Р·Р°РєСѓРїРєРё
+            ai_result: Р РµР·СѓР»СЊС‚Р°С‚ РР-Р°РЅР°Р»РёР·Р°
+            user_id: ID РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РґР»СЏ overrides
         
         Returns:
-            Сгенерированный URL или None
+            РЎРіРµРЅРµСЂРёСЂРѕРІР°РЅРЅС‹Р№ URL РёР»Рё None
         """
-        # Получаем user overrides
+        # РџРѕР»СѓС‡Р°РµРј user overrides
         overrides = self.db.user_overrides.get_for_zakupka(reg_number, user_id)
         
-        # Вычисляем effective values
+        # Р’С‹С‡РёСЃР»СЏРµРј effective values
         city = overrides.get('city') or ai_result.city
-        price_rub = float(overrides.get('price_rub')) if overrides.get('price_rub') else ai_result.price_rub
+        # price_rub РѕС‚СЃСѓС‚СЃС‚РІСѓРµС‚ РІ AIResult; РёСЃРїРѕР»СЊР·СѓРµРј override -> Р·Р°РєСѓРїРєР°.initial_price
+        if overrides.get('price_rub'):
+            price_rub = float(overrides.get('price_rub'))
+        else:
+            zakupka = self.eis.get_zakupka(reg_number)
+            price_rub = zakupka.initial_price if zakupka else None
         area_min = float(overrides.get('area_min_m2')) if overrides.get('area_min_m2') else ai_result.area_min_m2
         rooms_str = overrides.get('rooms') or ai_result.rooms
         floor_str = overrides.get('floor') or ai_result.floor
+
+        if not city:
+            city = self._derive_city_from_address(ai_result.address)
+        
+        self.logger.info(
+            f"Stage3 source values {reg_number}: city={city!r}, ai_city={ai_result.city!r}, "
+            f"override_city={overrides.get('city')!r}, address={ai_result.address!r}, "
+            f"price_rub={price_rub!r}"
+        )
         
         if not city:
-            self.logger.warning(f"Нет города для {reg_number}")
+            self.logger.warning(f"[SKIP] Нет города для {reg_number}")
             return None
         
-        # Парсим комнаты
+        # РџР°СЂСЃРёРј РєРѕРјРЅР°С‚С‹
         rooms_list = []
         if rooms_str:
             try:
-                # Простой парсинг: "1,2,3" или "1-3"
+                # РџСЂРѕСЃС‚РѕР№ РїР°СЂСЃРёРЅРі: "1,2,3" РёР»Рё "1-3"
                 import re
                 if ',' in str(rooms_str):
                     rooms_list = [int(x.strip()) for x in str(rooms_str).split(',') if x.strip().isdigit()]
@@ -105,7 +119,7 @@ class Pipeline:
         else:
             rooms_list = ai_result.get_rooms_list()
         
-        # Парсим этаж
+        # РџР°СЂСЃРёРј СЌС‚Р°Р¶
         floor_min = None
         if floor_str:
             try:
@@ -127,12 +141,30 @@ class Pipeline:
         if url:
             self.eis.update_two_gis_url(reg_number, url)
             
-            # Обновляем статус на 'url_ready' (Этап 2)
-            self.db_service.zakupki.update_status(reg_number, 'url_ready', prepared_by_user_id=user_id)
+            # РћР±РЅРѕРІР»СЏРµРј СЃС‚Р°С‚СѓСЃ РЅР° 'url_ready' (Р­С‚Р°Рї 2)
+            self.db.zakupki.update_status(reg_number, 'url_ready', prepared_by_user_id=user_id)
             
-            self.logger.info(f"Ссылка сгенерирована для {reg_number} (city={city})")
+            self.logger.info(f"[OK] Ссылка сгенерирована для {reg_number} (city={city})")
         
         return url
+
+    def _derive_city_from_address(self, address: Optional[str]) -> Optional[str]:
+        """Пытается извлечь город из адресной строки."""
+        if not address:
+            return None
+        import re
+        text = str(address)
+        patterns = [
+            r"г\.?\s*([А-ЯЁ][А-ЯЁа-яё\-\s]+)",
+            r"город\s+([А-ЯЁ][А-ЯЁа-яё\-\s]+)",
+        ]
+        for pattern in patterns:
+            m = re.search(pattern, text)
+            if m:
+                city = m.group(1).strip()
+                city = city.split(",")[0].strip()
+                return city
+        return None
     
     def run_stage4_for_zakupka(
         self,
@@ -142,13 +174,13 @@ class Pipeline:
         get_details: bool = False
     ) -> ListingResult:
         """
-        Стадия 4: Сбор объявлений для одной закупки.
+        РЎС‚Р°РґРёСЏ 4: РЎР±РѕСЂ РѕР±СЉСЏРІР»РµРЅРёР№ РґР»СЏ РѕРґРЅРѕР№ Р·Р°РєСѓРїРєРё.
         
         Args:
-            reg_number: Номер закупки
-            url: URL поиска 2ГИС
-            top_n: Количество объявлений
-            get_details: Получать детали (год постройки)
+            reg_number: РќРѕРјРµСЂ Р·Р°РєСѓРїРєРё
+            url: URL РїРѕРёСЃРєР° 2Р“РРЎ
+            top_n: РљРѕР»РёС‡РµСЃС‚РІРѕ РѕР±СЉСЏРІР»РµРЅРёР№
+            get_details: РџРѕР»СѓС‡Р°С‚СЊ РґРµС‚Р°Р»Рё (РіРѕРґ РїРѕСЃС‚СЂРѕР№РєРё)
         
         Returns:
             ListingResult
@@ -162,13 +194,13 @@ class Pipeline:
         if result.items:
             self.scraper.save_listings(reg_number, result.items, url)
             
-            # Обновляем статус на 'listings_fresh' (Этап 2)
-            self.db_service.zakupki.update_status(reg_number, 'listings_fresh')
+            # РћР±РЅРѕРІР»СЏРµРј СЃС‚Р°С‚СѓСЃ РЅР° 'listings_fresh' (Р­С‚Р°Рї 2)
+            self.db.zakupki.update_status(reg_number, 'listings_fresh')
         
         return result
     
     def get_statistics(self) -> dict:
-        """Возвращает статистику по всему пайплайну."""
+        """Р’РѕР·РІСЂР°С‰Р°РµС‚ СЃС‚Р°С‚РёСЃС‚РёРєСѓ РїРѕ РІСЃРµРјСѓ РїР°Р№РїР»Р°Р№РЅСѓ."""
         return {
             "zakupki": self.eis.count(),
             "ai_results": self.ai.count(),
@@ -179,22 +211,22 @@ class Pipeline:
         self,
         reg_number: str,
         run_stage3: bool = True,
-        run_stage4: bool = True,
+        run_stage4: bool = False,
         top_n: int = 20,
         get_details: bool = False
     ) -> dict:
         """
-        Обрабатывает одну закупку через весь пайплайн.
+        РћР±СЂР°Р±Р°С‚С‹РІР°РµС‚ РѕРґРЅСѓ Р·Р°РєСѓРїРєСѓ С‡РµСЂРµР· РІРµСЃСЊ РїР°Р№РїР»Р°Р№РЅ.
         
         Args:
-            reg_number: Номер закупки
-            run_stage3: Выполнить генерацию ссылок
-            run_stage4: Выполнить сбор объявлений
-            top_n: Количество объявлений
-            get_details: Получать детали
+            reg_number: РќРѕРјРµСЂ Р·Р°РєСѓРїРєРё
+            run_stage3: Р’С‹РїРѕР»РЅРёС‚СЊ РіРµРЅРµСЂР°С†РёСЋ СЃСЃС‹Р»РѕРє
+            run_stage4: Р’С‹РїРѕР»РЅРёС‚СЊ СЃР±РѕСЂ РѕР±СЉСЏРІР»РµРЅРёР№
+            top_n: РљРѕР»РёС‡РµСЃС‚РІРѕ РѕР±СЉСЏРІР»РµРЅРёР№
+            get_details: РџРѕР»СѓС‡Р°С‚СЊ РґРµС‚Р°Р»Рё
         
         Returns:
-            Результаты обработки
+            Р РµР·СѓР»СЊС‚Р°С‚С‹ РѕР±СЂР°Р±РѕС‚РєРё
         """
         result = {
             "reg_number": reg_number,
@@ -203,7 +235,7 @@ class Pipeline:
             "errors": []
         }
         
-        # Получаем ai_result
+        # РџРѕР»СѓС‡Р°РµРј ai_result
         ai_result = self.ai.get_result(reg_number)
         if not ai_result:
             result["errors"].append("Нет результата ИИ-анализа")
@@ -238,25 +270,25 @@ class Pipeline:
         return result
     
     # ================================================================
-    # Методы для запуска каждого этапа отдельно (для CLI и дашборда)
+    # РњРµС‚РѕРґС‹ РґР»СЏ Р·Р°РїСѓСЃРєР° РєР°Р¶РґРѕРіРѕ СЌС‚Р°РїР° РѕС‚РґРµР»СЊРЅРѕ (РґР»СЏ CLI Рё РґР°С€Р±РѕСЂРґР°)
     # ================================================================
     
     def run_stage1(self, limit: int = 10) -> StageResult:
         """
-        Stage 1: Загрузка закупок с ЕИС через EISDownloaderService (ОКПД2 68.10.11).
+        Stage 1: Р—Р°РіСЂСѓР·РєР° Р·Р°РєСѓРїРѕРє СЃ Р•РРЎ С‡РµСЂРµР· EISDownloaderService (РћРљРџР”2 68.10.11).
         
-        Логика:
-        1. Ищем закупки на ЕИС
-        2. Пропускаем те, что уже есть в БД
-        3. Загружаем документы и создаём combined_text
-        4. Сохраняем в БД
-        5. Удаляем папку с документами (текст уже в БД)
+        Р›РѕРіРёРєР°:
+        1. РС‰РµРј Р·Р°РєСѓРїРєРё РЅР° Р•РРЎ
+        2. РџСЂРѕРїСѓСЃРєР°РµРј С‚Рµ, С‡С‚Рѕ СѓР¶Рµ РµСЃС‚СЊ РІ Р‘Р”
+        3. Р—Р°РіСЂСѓР¶Р°РµРј РґРѕРєСѓРјРµРЅС‚С‹ Рё СЃРѕР·РґР°С‘Рј combined_text
+        4. РЎРѕС…СЂР°РЅСЏРµРј РІ Р‘Р”
+        5. РЈРґР°Р»СЏРµРј РїР°РїРєСѓ СЃ РґРѕРєСѓРјРµРЅС‚Р°РјРё (С‚РµРєСЃС‚ СѓР¶Рµ РІ Р‘Р”)
         
         Args:
-            limit: Количество НОВЫХ закупок для загрузки
+            limit: РљРѕР»РёС‡РµСЃС‚РІРѕ РќРћР’Р«РҐ Р·Р°РєСѓРїРѕРє РґР»СЏ Р·Р°РіСЂСѓР·РєРё
         
         Returns:
-            StageResult с данными о загрузке
+            StageResult СЃ РґР°РЅРЅС‹РјРё Рѕ Р·Р°РіСЂСѓР·РєРµ
         """
         import os
         import shutil
@@ -266,8 +298,8 @@ class Pipeline:
         errors = []
         saved = 0
         skipped = 0
-        found = 0  # Все найденные подходящие закупки (для остановки)
-        processed_reg_numbers = set()  # Для дедупликации
+        found = 0  # Р’СЃРµ РЅР°Р№РґРµРЅРЅС‹Рµ РїРѕРґС…РѕРґСЏС‰РёРµ Р·Р°РєСѓРїРєРё (РґР»СЏ РѕСЃС‚Р°РЅРѕРІРєРё)
+        processed_reg_numbers = set()  # Р”Р»СЏ РґРµРґСѓРїР»РёРєР°С†РёРё
         
         try:
             page = 1
@@ -276,7 +308,7 @@ class Pipeline:
             while found < limit and page <= max_pages:
                 self.logger.info(f"Страница {page}...")
                 
-                # Используем ООП-сервис EISDownloaderService
+                # РСЃРїРѕР»СЊР·СѓРµРј РћРћРџ-СЃРµСЂРІРёСЃ EISDownloaderService
                 html = self.eis_downloader._fetch_search_page(page)
                 if not html:
                     page += 1
@@ -293,38 +325,38 @@ class Pipeline:
                     
                     reg_number = p.get('reg_number', '')
                     
-                    # Пропускаем дубликаты на текущей странице
+                    # РџСЂРѕРїСѓСЃРєР°РµРј РґСѓР±Р»РёРєР°С‚С‹ РЅР° С‚РµРєСѓС‰РµР№ СЃС‚СЂР°РЅРёС†Рµ
                     if reg_number in processed_reg_numbers:
                         continue
                     processed_reg_numbers.add(reg_number)
                     
-                    # Проверяем есть ли в БД
+                    # РџСЂРѕРІРµСЂСЏРµРј РµСЃС‚СЊ Р»Рё РІ Р‘Р”
                     existing = self.eis.get_zakupka(reg_number)
                     if existing and existing.combined_text:
-                        self.logger.info(f"  ⏭️ {reg_number} — уже в БД")
+                        self.logger.info(f"  [SKIP] {reg_number} — уже в БД")
                         skipped += 1
                         found += 1
                         continue
                     
-                    # Загружаем документы через ООП-сервис
+                    # Р—Р°РіСЂСѓР¶Р°РµРј РґРѕРєСѓРјРµРЅС‚С‹ С‡РµСЂРµР· РћРћРџ-СЃРµСЂРІРёСЃ
                     try:
-                        self.logger.info(f"📥 Обработка {reg_number}...")
+                        self.logger.info(f"[INFO] Обработка {reg_number}...")
                         
-                        # EISDownloaderService.download_documents уже загружает 
-                        # печатную форму и документы, создаёт combined_text.txt
+                        # EISDownloaderService.download_documents СѓР¶Рµ Р·Р°РіСЂСѓР¶Р°РµС‚ 
+                        # РїРµС‡Р°С‚РЅСѓСЋ С„РѕСЂРјСѓ Рё РґРѕРєСѓРјРµРЅС‚С‹, СЃРѕР·РґР°С‘С‚ combined_text.txt
                         combined_path = self.eis_downloader.download_documents(reg_number)
                         
-                        # Читаем текст
+                        # Р§РёС‚Р°РµРј С‚РµРєСЃС‚
                         combined_text = ""
                         if combined_path and os.path.exists(combined_path):
                             with open(combined_path, 'r', encoding='utf-8') as f:
                                 combined_text = f.read()
                         
                         if not combined_text.strip():
-                            self.logger.warning(f"Нет текста для {reg_number}")
+                            self.logger.warning(f"[SKIP] Нет текста для {reg_number}")
                             continue
                         
-                        # Сохраняем в БД
+                        # РЎРѕС…СЂР°РЅСЏРµРј РІ Р‘Р”
                         zakupka = Zakupka(
                             reg_number=reg_number,
                             description=p.get('description', ''),
@@ -336,12 +368,12 @@ class Pipeline:
                             saved += 1
                             found += 1
                             
-                            # Обновляем статус на 'raw' (Этап 2)
-                            self.db_service.zakupki.update_status(reg_number, 'raw')
+                            # РћР±РЅРѕРІР»СЏРµРј СЃС‚Р°С‚СѓСЃ РЅР° 'raw' (Р­С‚Р°Рї 2)
+                            self.db.zakupki.update_status(reg_number, 'raw')
                             
-                            self.logger.info(f"✅ Сохранена закупка {reg_number} ({found}/{limit})")
+                            self.logger.info(f"[OK] Сохранена закупка {reg_number} ({found}/{limit})")
                             
-                            # Удаляем папку — текст уже в БД
+                            # РЈРґР°Р»СЏРµРј РїР°РїРєСѓ вЂ” С‚РµРєСЃС‚ СѓР¶Рµ РІ Р‘Р”
                             zakupka_dir = self.eis_downloader.zakupki_dir / reg_number
                             if zakupka_dir.exists():
                                 shutil.rmtree(zakupka_dir, ignore_errors=True)
@@ -349,7 +381,7 @@ class Pipeline:
                         
                     except Exception as e:
                         errors.append(f"{reg_number}: {e}")
-                        self.logger.error(f"Ошибка обработки {reg_number}: {e}")
+                        self.logger.error(f"[ERROR] Ошибка обработки {reg_number}: {e}")
                 
                 page += 1
             
@@ -376,13 +408,13 @@ class Pipeline:
     
     def _get_print_form(self, reg_number: str) -> str:
         """
-        Получает текст печатной формы закупки с ЕИС.
+        РџРѕР»СѓС‡Р°РµС‚ С‚РµРєСЃС‚ РїРµС‡Р°С‚РЅРѕР№ С„РѕСЂРјС‹ Р·Р°РєСѓРїРєРё СЃ Р•РРЎ.
         
         Args:
-            reg_number: Регистрационный номер закупки
+            reg_number: Р РµРіРёСЃС‚СЂР°С†РёРѕРЅРЅС‹Р№ РЅРѕРјРµСЂ Р·Р°РєСѓРїРєРё
         
         Returns:
-            Текст печатной формы или пустая строка
+            РўРµРєСЃС‚ РїРµС‡Р°С‚РЅРѕР№ С„РѕСЂРјС‹ РёР»Рё РїСѓСЃС‚Р°СЏ СЃС‚СЂРѕРєР°
         """
         import requests
         from bs4 import BeautifulSoup
@@ -396,23 +428,23 @@ class Pipeline:
             
             soup = BeautifulSoup(resp.text, "html.parser")
             
-            # Удаляем скрипты и стили
+            # РЈРґР°Р»СЏРµРј СЃРєСЂРёРїС‚С‹ Рё СЃС‚РёР»Рё
             for tag in soup.find_all(['script', 'style', 'nav', 'header', 'footer']):
                 tag.decompose()
             
-            # Ищем основной контент
+            # РС‰РµРј РѕСЃРЅРѕРІРЅРѕР№ РєРѕРЅС‚РµРЅС‚
             main_content = soup.find('div', class_='wrapper')
             if not main_content:
                 main_content = soup.find('main')
             if not main_content:
                 main_content = soup
             
-            # Извлекаем текст
+            # РР·РІР»РµРєР°РµРј С‚РµРєСЃС‚
             text = main_content.get_text(separator='\n', strip=True)
             
-            # Очищаем от лишних пустых строк
+            # РћС‡РёС‰Р°РµРј РѕС‚ Р»РёС€РЅРёС… РїСѓСЃС‚С‹С… СЃС‚СЂРѕРє
             lines = [line.strip() for line in text.split('\n') if line.strip()]
-            result = '\n'.join(lines[:200])  # Первые 200 строк
+            result = '\n'.join(lines[:200])  # РџРµСЂРІС‹Рµ 200 СЃС‚СЂРѕРє
             
             if result:
                 self.logger.info(f"Печатная форма загружена для {reg_number} ({len(result)} символов)")
@@ -422,103 +454,104 @@ class Pipeline:
             self.logger.warning(f"Не удалось загрузить печатную форму для {reg_number}: {e}")
         
         return ""
-    
-    def run_stage2(self, limit: int = None, reg_numbers: List[str] = None) -> StageResult:
+    def run_stage2(self, limit: int = None, reg_numbers: List[str] = None, overwrite: bool = False) -> StageResult:
         """
-        Stage 2: ИИ-обработка закупок через AIProcessorService (OpenRouter).
-        
+        Stage 2: ИИ-обработка текстов закупок через AIProcessorService (Cerebras).
+
         Args:
-            limit: Количество закупок для обработки (None = все)
-            reg_numbers: Список ID для обработки (если задан, limit игнорируется или применяется к фильтрованному списку)
-        
+            limit: Количество закупок для обработки (None = все).
+            reg_numbers: Список ID для обработки. Если передан, limit игнорируется.
+            overwrite: Перезаписывать существующие AI-результаты.
+
         Returns:
-            StageResult с данными об обработке
+            StageResult с итогом обработки.
         """
-        self.logger.info(f"Stage 2: ИИ-обработка (limit={limit}, reg_numbers={len(reg_numbers) if reg_numbers else 'All'})")
-        
+        self.logger.info(
+            f"Stage 2: ИИ-обработка (limit={limit}, reg_numbers={len(reg_numbers) if reg_numbers else 'All'}, overwrite={overwrite})"
+        )
+        import time
+
+        delay_s = getattr(settings, "ai_stage2_delay_s", 0.0)
+
         errors = []
         processed = 0
         cities = []
         skipped_no_text = 0
         skipped_already_processed = 0
-        
+
         try:
-            # Получаем закупки для обработки (ПОСЛЕДНИЕ)
-            # Если заданы reg_numbers, используем их
             if reg_numbers:
                 zakupki = self.eis.get_by_reg_numbers(reg_numbers)
                 if not zakupki:
-                     self.logger.warning(f"Не найдены закупки для переданных reg_numbers: {reg_numbers}")
+                    self.logger.warning(f"[SKIP] Нет закупок по переданным reg_numbers: {reg_numbers}")
             else:
                 zakupki = self.eis.get_all_zakupki()
                 if limit:
                     zakupki = zakupki[-limit:]
-            
-            self.logger.info(f"Найдено {len(zakupki)} закупок для ИИ-обработки")
-            
+
+            self.logger.info(f"Найдено закупок для Stage 2: {len(zakupki)}")
+
             for i, zakupka in enumerate(zakupki, 1):
                 reg_number = zakupka.reg_number
-                
+
                 if not zakupka.combined_text:
-                    self.logger.info(f"  ⏭️ {reg_number} — нет combined_text")
+                    self.logger.info(f"[SKIP] {reg_number}: отсутствует combined_text")
                     skipped_no_text += 1
                     continue
-                
-                # Проверяем существующий результат
+
                 existing = self.ai.get_result(reg_number)
-                if existing:
-                    self.logger.info(f"  ⏭️ {reg_number} — уже обработан ИИ")
+                if existing and not overwrite:
+                    self.logger.info(f"[SKIP] {reg_number}: AI-результат уже существует")
                     skipped_already_processed += 1
                     continue
-                
+
                 try:
-                    self.logger.info(f"[{i}/{len(zakupki)}] Обработка ИИ: {reg_number}...")
-                    
-                    # Используем ООП-сервис AIProcessorService
+                    self.logger.info(f"[{i}/{len(zakupki)}] Обработка AI: {reg_number}")
+
                     ai_result = self.ai_processor.process_zakupka(zakupka)
-                    
+
                     if ai_result and self.ai.save_result(ai_result):
                         processed += 1
                         if ai_result.city and ai_result.city not in cities:
                             cities.append(ai_result.city)
-                        
-                        # Обновляем статус на 'ai_ready' (Этап 2)
-                        self.db_service.zakupki.update_status(reg_number, 'ai_ready')
-                        
-                        self.logger.info(f"✅ Сохранён результат для {reg_number}")
-                    
+
+                        self.db.zakupki.update_status(reg_number, 'ai_ready')
+                        self.logger.info(f"[OK] AI-результат сохранён: {reg_number}")
+
                 except Exception as e:
                     errors.append(f"{reg_number}: {e}")
-                    self.logger.error(f"Ошибка ИИ для {reg_number}: {e}")
-            
-            # Итоговая статистика
-            self.logger.info(f"📊 Статистика:")
-            self.logger.info(f"   Пропущено (нет текста): {skipped_no_text}")
-            self.logger.info(f"   Пропущено (уже обработаны): {skipped_already_processed}")
-            self.logger.info(f"   Обработано успешно: {processed}")
-            self.logger.info(f"   Ошибок: {len(errors)}")
-            
+                    self.logger.error(f"[ERROR] Ошибка Stage 2 для {reg_number}: {e}")
+
+                if delay_s and i < len(zakupki):
+                    time.sleep(delay_s)
+
+            self.logger.info("Итоги Stage 2:")
+            self.logger.info(f"  [SKIP] Без текста: {skipped_no_text}")
+            self.logger.info(f"  [SKIP] Уже обработано: {skipped_already_processed}")
+            self.logger.info(f"  [OK] Обработано: {processed}")
+            self.logger.info(f"  [ERROR] Ошибок: {len(errors)}")
+
             success = processed > 0 or len(errors) == 0
-            
+
             msg_parts = []
             if processed > 0:
-                msg_parts.append(f"Обработано {processed} закупок")
+                msg_parts.append(f"обработано {processed}")
             if skipped_already_processed > 0:
-                msg_parts.append(f"Уже готово {skipped_already_processed}")
+                msg_parts.append(f"пропущено (уже было) {skipped_already_processed}")
             if skipped_no_text > 0:
-                msg_parts.append(f"Пропущено (нет текста) {skipped_no_text}")
-            
-            message = ", ".join(msg_parts) if msg_parts else "Ничего не обработано"
+                msg_parts.append(f"пропущено (без текста) {skipped_no_text}")
+
+            message = ", ".join(msg_parts) if msg_parts else "данные для обработки не найдены"
             if errors:
-                message += f". Ошибок: {len(errors)}"
-            
+                message += f". ошибок: {len(errors)}"
+
         except Exception as e:
             success = False
-            message = f"Ошибка обработки: {e}"
+            message = f"ошибка обработки Stage 2: {e}"
             errors.append(str(e))
-        
+
         self.logger.info(message)
-        
+
         return StageResult(
             stage=2,
             success=success,
@@ -526,35 +559,33 @@ class Pipeline:
             data={"limit": limit, "processed": processed},
             errors=errors
         )
-    
-    def run_stage3(self, limit: int = None, reg_numbers: List[str] = None) -> StageResult:
+    def run_stage3(self, limit: int = None, reg_numbers: List[str] = None, overwrite: bool = False) -> StageResult:
         """
-        Stage 3: Генерация ссылок 2ГИС.
+        Stage 3: РіРµРЅРµСЂР°С†РёСЏ СЃСЃС‹Р»РѕРє 2Р“РРЎ.
         
         Args:
-            limit: Количество закупок для обработки (None = все)
-            reg_numbers: Список ID для обработки
+            limit: РљРѕР»РёС‡РµСЃС‚РІРѕ Р·Р°РєСѓРїРѕРє РґР»СЏ РѕР±СЂР°Р±РѕС‚РєРё (None = РІСЃРµ)
+            reg_numbers: РЎРїРёСЃРѕРє ID РґР»СЏ РѕР±СЂР°Р±РѕС‚РєРё
+            overwrite: РџРµСЂРµР·Р°РїРёСЃС‹РІР°С‚СЊ СЃСѓС‰РµСЃС‚РІСѓСЋС‰РёРµ СЃСЃС‹Р»РєРё
         
         Returns:
-            StageResult с данными о генерации
+            StageResult СЃ РґР°РЅРЅС‹РјРё Рѕ РіРµРЅРµСЂР°С†РёРё
         """
-        self.logger.info(f"Stage 3: Генерация ссылок (limit={limit}, reg_numbers={len(reg_numbers) if reg_numbers else 'All'})")
+        self.logger.info(f"Stage 3: генерация ссылок (limit={limit}, reg_numbers={len(reg_numbers) if reg_numbers else 'All'}, overwrite={overwrite})")
         
         errors = []
         generated = 0
-        urls = []
+        items = []
         
-        # Получаем ai_results
+        # ???????? ai_results
         if reg_numbers:
-            # Если переданы конкретные ID, берем их
-            # Примечание: лучше бы иметь метод get_many в репозитории, но пока так
             ai_results = []
             for reg in reg_numbers:
                 res = self.ai.get_result(reg)
                 if res:
                     ai_results.append(res)
                 else:
-                    self.logger.warning(f"Нет AI результат для {reg}")
+                    self.logger.warning(f"[SKIP] Нет AI-результата для {reg}")
         else:
             ai_results = self.ai.get_all_results()
             if limit:
@@ -562,15 +593,27 @@ class Pipeline:
         
         for ai_result in ai_results:
             try:
+                self.logger.info(f"Stage 3 item: {ai_result.reg_number}")
+                existing = self.eis.get_zakupka(ai_result.reg_number)
+                if existing and existing.two_gis_url and not overwrite:
+                    self.logger.info(f"Stage 3 skip existing url: {ai_result.reg_number}")
+                    items.append({"reg_number": ai_result.reg_number, "two_gis_url": existing.two_gis_url})
+                    continue
+
+                self.logger.info(f"Stage 3 generate url for: {ai_result.reg_number}")
                 url = self.run_stage3_for_zakupka(ai_result.reg_number, ai_result)
+                self.logger.info(f"Stage 3 url result for {ai_result.reg_number}: {url!r}")
                 if url:
                     generated += 1
-                    urls.append({"reg_number": ai_result.reg_number, "url": url[:80]})
+                else:
+                    self.logger.warning(f"Stage 3 no url generated: {ai_result.reg_number}")
+                items.append({"reg_number": ai_result.reg_number, "two_gis_url": url})
             except Exception as e:
+                self.logger.error(f"Stage 3 error for {ai_result.reg_number}: {e}")
                 errors.append(f"{ai_result.reg_number}: {e}")
         
         success = generated > 0
-        message = f"Сгенерировано {generated} ссылок из {len(ai_results)}"
+        message = f"Сформировано {generated} ссылок из {len(ai_results)}"
         
         self.logger.info(message)
         
@@ -581,11 +624,11 @@ class Pipeline:
             data={
                 "total": len(ai_results),
                 "generated": generated,
-                "urls": urls[:10]  # Первые 10 для отображения
+                "items": items
             },
             errors=errors
         )
-    
+
     def run_stage4(
         self,
         top_n: int = 20,
@@ -593,23 +636,23 @@ class Pipeline:
         get_details: bool = False
     ) -> StageResult:
         """
-        Stage 4: Сбор объявлений с 2ГИС.
+        Stage 4: РЎР±РѕСЂ РѕР±СЉСЏРІР»РµРЅРёР№ СЃ 2Р“РРЎ.
         
         Args:
-            top_n: Количество объявлений на закупку
-            limit: Количество закупок для обработки (None = все)
-            get_details: Получать детали (год постройки)
+            top_n: РљРѕР»РёС‡РµСЃС‚РІРѕ РѕР±СЉСЏРІР»РµРЅРёР№ РЅР° Р·Р°РєСѓРїРєСѓ
+            limit: РљРѕР»РёС‡РµСЃС‚РІРѕ Р·Р°РєСѓРїРѕРє РґР»СЏ РѕР±СЂР°Р±РѕС‚РєРё (None = РІСЃРµ)
+            get_details: РџРѕР»СѓС‡Р°С‚СЊ РґРµС‚Р°Р»Рё (РіРѕРґ РїРѕСЃС‚СЂРѕР№РєРё)
         
         Returns:
-            StageResult с данными о сборе
+            StageResult СЃ РґР°РЅРЅС‹РјРё Рѕ СЃР±РѕСЂРµ
         """
-        self.logger.info(f"Stage 4: Сбор объявлений (top_n={top_n}, limit={limit}, details={get_details})")
+        self.logger.info(f"Stage 4: сбор объявлений (top_n={top_n}, limit={limit}, details={get_details})")
         
         errors = []
         total_listings = 0
         processed = 0
         
-        # Получаем закупки с URL
+        # РџРѕР»СѓС‡Р°РµРј Р·Р°РєСѓРїРєРё СЃ URL
         zakupki = self.eis.get_zakupki_with_links()
         if limit:
             zakupki = zakupki[:limit]
@@ -652,3 +695,8 @@ class Pipeline:
             },
             errors=errors
         )
+
+
+
+
+

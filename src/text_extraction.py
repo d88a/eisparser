@@ -1,43 +1,51 @@
-"""Утилиты для извлечения текстов из документов различных форматов."""
+﻿"""Utilities for extracting text from different document formats."""
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import tempfile
 import zipfile
 from pathlib import Path
 
+import olefile
 import openpyxl
 import pdfplumber
-from docx import Document
-import olefile
 import xlrd
+from docx import Document
+
+logger = logging.getLogger("text_extraction")
+_word_com_unavailable_logged = False
+_word_fallback_logged = False
 
 
 def extract_text_from_pdf(path: str) -> str:
-    """Читаем PDF постранично."""
     chunks: list[str] = []
     try:
         with pdfplumber.open(path) as pdf:
             for page in pdf.pages:
                 chunks.append(page.extract_text() or "")
     except Exception as exc:
-        return f"Ошибка извлечения текста для PDF: {exc}"
+        return f"Error extracting text from PDF: {exc}"
     return "\n".join(chunks)
 
 
 def extract_text_from_doc(path: str) -> str:
-    """Работаем с устаревшими DOC: пытаемся через Word, иначе наивно декодируем."""
+    global _word_fallback_logged
 
     converted = _extract_doc_via_word(path)
     if converted:
         return converted
-    print(f"[extract_text_from_doc] Word conversion failed for {path}, fallback to naive decode.")
+
+    if not _word_fallback_logged:
+        logger.info("Word DOC conversion fallback is active; DOC files will be parsed without COM.")
+        _word_fallback_logged = True
 
     try:
         with open(path, "rb") as f:
             data = f.read()
+
         try:
             text = data.decode("utf-8", errors="ignore")
         except Exception:
@@ -48,13 +56,12 @@ def extract_text_from_doc(path: str) -> str:
             if ch in ("\n", "\r", "\t") or ch.isprintable():
                 cleaned.append(ch)
         result = "".join(cleaned)
-        return result if result.strip() else "Не удалось извлечь содержимое из DOC"
+        return result if result.strip() else "Error extracting text from DOC: empty content"
     except Exception as exc:
-        return f"Ошибка извлечения текста для DOC: {exc}"
+        return f"Error extracting text from DOC: {exc}"
 
 
 def extract_text_from_docx(path: str) -> str:
-    """Считываем параграфы и таблицы DOCX."""
     try:
         doc = Document(path)
         parts: list[str] = []
@@ -66,34 +73,36 @@ def extract_text_from_docx(path: str) -> str:
                 if any(cells):
                     parts.append("\t".join(cells))
         result = "\n".join(parts)
-        return result if result.strip() else "Не удалось извлечь содержимое из DOCX"
+        return result if result.strip() else "Error extracting text from DOCX: empty content"
     except Exception as exc:
-        return f"Ошибка извлечения текста для DOCX: {exc}"
+        return f"Error extracting text from DOCX: {exc}"
 
 
 def extract_text_from_excel(path: str) -> str:
-    """Собираем значения со всех листов Excel."""
     try:
         wb = openpyxl.load_workbook(path, data_only=True)
         parts: list[str] = []
         for sheet in wb.worksheets:
-            parts.append(f"=== Лист {sheet.title} ===")
+            parts.append(f"=== Sheet {sheet.title} ===")
             for row in sheet.iter_rows(values_only=True):
                 values = [str(v) for v in row if v is not None]
                 if values:
                     parts.append(" ".join(values))
         result = "\n".join(parts)
-        return result if result.strip() else "Не удалось извлечь содержимое из Excel"
+        return result if result.strip() else "Error extracting text from Excel: empty content"
     except Exception as exc:
-        return f"Ошибка извлечения текста для Excel: {exc}"
+        return f"Error extracting text from Excel: {exc}"
 
 
 def _extract_doc_via_word(path: str) -> str | None:
-    """Пробуем конвертировать DOC -> DOCX с помощью установленного MS Word."""
+    global _word_com_unavailable_logged
+
     try:
         import win32com.client as win32  # type: ignore
     except ImportError:
-        print("[_extract_doc_via_word] win32com.client не найден, пропускаем конвертацию.")
+        if not _word_com_unavailable_logged:
+            logger.warning("Word COM is unavailable (win32com is missing). Falling back without DOC conversion.")
+            _word_com_unavailable_logged = True
         return None
 
     tmp_dir = tempfile.mkdtemp(prefix="doc-convert-")
@@ -101,22 +110,23 @@ def _extract_doc_via_word(path: str) -> str | None:
     doc = None
     try:
         tmp_docx = Path(tmp_dir) / "converted.docx"
-        word = win32.DispatchEx("Word.Application")
+        try:
+            word = win32.DispatchEx("Word.Application")
+        except Exception as exc:
+            if not _word_com_unavailable_logged:
+                logger.warning("Word COM is unavailable (%s). Falling back without DOC conversion.", exc)
+                _word_com_unavailable_logged = True
+            return None
+
         word.Visible = False
-        print(f"[_extract_doc_via_word] Запускаем Word для {path}")
         doc = word.Documents.Open(os.path.abspath(path))
-        doc.SaveAs(str(tmp_docx), FileFormat=16)  # 16 = wdFormatXMLDocument
+        doc.SaveAs(str(tmp_docx), FileFormat=16)
         doc.Close()
         doc = None
 
-        text = extract_text_from_docx(str(tmp_docx))
-        if not text.strip():
-            print(f"[_extract_doc_via_word] Word-конвертация вернула пустой текст: {path}")
-        else:
-            print(f"[_extract_doc_via_word] Успешно конвертировали {path}")
-        return text
+        return extract_text_from_docx(str(tmp_docx))
     except Exception as exc:
-        print(f"[_extract_doc_via_word] Ошибка при конвертации {path}: {exc}")
+        logger.info("Word COM conversion failed for %s: %s", path, exc)
         return None
     finally:
         if doc is not None:
@@ -127,12 +137,11 @@ def _extract_doc_via_word(path: str) -> str | None:
 
 
 def extract_text_from_xls(path: str) -> str:
-    """Читаем старый бинарный Excel (.xls)."""
     try:
         wb = xlrd.open_workbook(path, on_demand=True)
         parts: list[str] = []
         for sheet in wb.sheets():
-            parts.append(f"=== Лист {sheet.name} ===")
+            parts.append(f"=== Sheet {sheet.name} ===")
             for rx in range(sheet.nrows):
                 values = []
                 for cx in range(sheet.ncols):
@@ -146,13 +155,12 @@ def extract_text_from_xls(path: str) -> str:
                 if values:
                     parts.append("\t".join(values))
         result = "\n".join(parts)
-        return result if result.strip() else "Не удалось извлечь содержимое из XLS"
+        return result if result.strip() else "Error extracting text from XLS: empty content"
     except Exception as exc:
-        return f"Ошибка извлечения текста для XLS: {exc}"
+        return f"Error extracting text from XLS: {exc}"
 
 
 def _is_ole_excel(path: str) -> bool:
-    """Проверяем, похож ли OLE-файл на Excel-таблицу."""
     try:
         if not olefile.isOleFile(path):
             return False
@@ -164,7 +172,6 @@ def _is_ole_excel(path: str) -> bool:
 
 
 def extract_text_from_zip(path: str) -> str:
-    """Распаковываем архив и извлекаем текст из каждого файла рекурсивно."""
     temp_dir = None
     try:
         text_chunks: list[str] = []
@@ -176,18 +183,17 @@ def extract_text_from_zip(path: str) -> str:
             for fname in files:
                 inner_path = os.path.join(root, fname)
                 text = extract_text_from_any_file(inner_path)
-                if text and not text.startswith("Ошибка"):
-                    text_chunks.append(f"=== Файл внутри архива: {fname} ===\n{text}")
+                if text and not text.startswith("Error extracting"):
+                    text_chunks.append(f"=== File inside archive: {fname} ===\n{text}")
         return "\n\n".join(text_chunks)
     except Exception as exc:
-        return f"Ошибка извлечения текста для ZIP: {exc}"
+        return f"Error extracting text from ZIP: {exc}"
     finally:
         if temp_dir and os.path.isdir(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def detect_type_by_extension(path: str) -> str:
-    """Грубое определение по расширению."""
     ext = os.path.splitext(path)[1].lower()
     if ext == ".pdf":
         return "pdf"
@@ -205,7 +211,6 @@ def detect_type_by_extension(path: str) -> str:
 
 
 def detect_type_by_signature(path: str) -> str:
-    """Уточняем тип по сигнатурам."""
     try:
         with open(path, "rb") as f:
             header = f.read(2048)
@@ -235,7 +240,6 @@ def detect_type_by_signature(path: str) -> str:
 
 
 def extract_text_from_any_file(path: str) -> str:
-    """Пытаемся извлечь текст, исходя из определения типа."""
     ftype = detect_type_by_extension(path)
     signature_type = detect_type_by_signature(path)
     if signature_type != "unknown":
@@ -253,4 +257,4 @@ def extract_text_from_any_file(path: str) -> str:
         return extract_text_from_doc(path)
     if ftype == "zip":
         return extract_text_from_zip(path)
-    return f"Неизвестный тип файла: {os.path.basename(path)}"
+    return f"Unknown file type: {os.path.basename(path)}"

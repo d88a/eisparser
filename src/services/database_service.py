@@ -57,6 +57,14 @@ class DatabaseService:
             self.user_overrides.create_table(),
             self.user_selections.create_table()
         ])
+
+        # Cleanup legacy decisions marked as "selected" to avoid stale stage logic.
+        try:
+            removed = self.decisions.delete_by_decision_value("selected")
+            if removed:
+                self.logger.info(f"Deleted legacy decisions with selected: {removed}")
+        except Exception as e:
+            self.logger.error(f"Failed to cleanup selected decisions: {e}")
         
         if success:
             self.logger.info("База данных инициализирована успешно")
