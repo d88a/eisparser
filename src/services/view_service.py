@@ -1,5 +1,5 @@
-"""
-Сервис для подготовки view-моделей.
+﻿"""
+РЎРµСЂРІРёСЃ РґР»СЏ РїРѕРґРіРѕС‚РѕРІРєРё view-РјРѕРґРµР»РµР№.
 """
 from typing import List, Optional
 
@@ -10,7 +10,7 @@ from utils.logger import get_logger
 
 class ViewService:
     """
-    Сервис для агрегации данных и подготовки view-моделей.
+    РЎРµСЂРІРёСЃ РґР»СЏ Р°РіСЂРµРіР°С†РёРё РґР°РЅРЅС‹С… Рё РїРѕРґРіРѕС‚РѕРІРєРё view-РјРѕРґРµР»РµР№.
     """
     
     def __init__(self, db_service: DatabaseService):
@@ -19,15 +19,15 @@ class ViewService:
         
     def get_zakupka_stage_view(self, user_id: int, stage: int, limit: int = 100) -> List[ZakupkaStageView]:
         """
-        Получает список view-моделей для этапа.
+        РџРѕР»СѓС‡Р°РµС‚ СЃРїРёСЃРѕРє view-РјРѕРґРµР»РµР№ РґР»СЏ СЌС‚Р°РїР°.
         
         Args:
-            user_id: ID пользователя
-            stage: Номер этапа
-            limit: Максимальное количество записей (для Stage 1)
+            user_id: ID РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ
+            stage: РќРѕРјРµСЂ СЌС‚Р°РїР°
+            limit: РњР°РєСЃРёРјР°Р»СЊРЅРѕРµ РєРѕР»РёС‡РµСЃС‚РІРѕ Р·Р°РїРёСЃРµР№ (РґР»СЏ Stage 1)
             
         Returns:
-            Список ZakupkaStageView
+            РЎРїРёСЃРѕРє ZakupkaStageView
         """
         result = []
         
@@ -49,9 +49,9 @@ class ViewService:
             
             # SPECIAL HANDLING FOR STAGE 2 (AI Review)
             elif stage == 2:
-                # Этап 2 показывает только одобренные на Этапе 1
-                approved_ids = self.db.decisions.get_approved_reg_numbers(user_id, 1)
-                zakupki = self.db.zakupki.get_by_reg_numbers(approved_ids)
+                # Stage 2 uses unified pending source (raw/ai_error).
+                zakupki = self.db.get_stage2_pending_items(overwrite=False)
+                self.logger.info("Stage2 view selection: selected=%s", len(zakupki))
             
             else:
                 # For stage > 2 (future)
@@ -59,16 +59,16 @@ class ViewService:
                 zakupki = self.db.get_zakupki_for_stage(user_id, prev_stage)
             
             for z in zakupki:
-                # 2. Получаем последнее решение (оно будет None для Stage 1, если мы отфильтровали)
+                # 2. РџРѕР»СѓС‡Р°РµРј РїРѕСЃР»РµРґРЅРµРµ СЂРµС€РµРЅРёРµ (РѕРЅРѕ Р±СѓРґРµС‚ None РґР»СЏ Stage 1, РµСЃР»Рё РјС‹ РѕС‚С„РёР»СЊС‚СЂРѕРІР°Р»Рё)
                 decision = self.db.decisions.get_last_decision(user_id, z.reg_number, stage)
                 
-                # 3. Получаем AIResult
+                # 3. РџРѕР»СѓС‡Р°РµРј AIResult
                 ai_result = self.db.ai_results.get_by_id(z.reg_number)
                 
-                # 4. Получаем Listings
+                # 4. РџРѕР»СѓС‡Р°РµРј Listings
                 listings = self.db.listings.get_for_zakupka(z.reg_number)
                 
-                # 5. Считаем агрегаты (Null-safety)
+                # 5. РЎС‡РёС‚Р°РµРј Р°РіСЂРµРіР°С‚С‹ (Null-safety)
                 listings_count = len(listings) if listings else 0
                 
                 listings_min_price = None
@@ -80,7 +80,7 @@ class ViewService:
                         listings_min_price = min(prices)
                         listings_max_price = max(prices)
                 
-                # 6. Создаем View с ВСЕМИ полями AI
+                # 6. РЎРѕР·РґР°РµРј View СЃ Р’РЎР•РњР РїРѕР»СЏРјРё AI
                 view = ZakupkaStageView(
                     reg_number=z.reg_number,
                     description=z.description or "",
@@ -92,7 +92,7 @@ class ViewService:
                     my_decision=decision.decision if decision else None,
                     my_decision_comment=decision.comment if decision else None,
                     has_ai_result=ai_result is not None,
-                    # Все AI поля
+                    # Р’СЃРµ AI РїРѕР»СЏ
                     ai_zakupka_name=ai_result.zakupka_name if ai_result else None,
                     ai_address=ai_result.address if ai_result else None,
                     ai_city=ai_result.city if ai_result else None,
@@ -105,7 +105,7 @@ class ViewService:
                     ai_year_build=ai_result.year_build_str if ai_result else None,
                     ai_wear_percent=ai_result.wear_percent if ai_result else None,
                     ai_zakazchik=ai_result.zakazchik if ai_result else None,
-                    # Агрегаты
+                    # РђРіСЂРµРіР°С‚С‹
                     listings_count=listings_count,
                     listings_min_price=listings_min_price,
                     listings_max_price=listings_max_price,
@@ -115,12 +115,12 @@ class ViewService:
                 result.append(view)
                 
         except Exception as e:
-            self.logger.error(f"Ошибка формирования view-моделей: {e}")
-            # ТЗ: "Никаких исключений" - возвращаем то, что успели собрать или пустой список?
-            # "Список возвращается без ошибок" -> лучше вернуть пустой или частичный, но не крашить
-            # В данном случае вернем то, что есть, если упало в цикле, 
-            # или пустой, если упало выше.
-            # Но если упало на конкретной закупке, лучше пропустить её.
+            self.logger.error(f"РћС€РёР±РєР° С„РѕСЂРјРёСЂРѕРІР°РЅРёСЏ view-РјРѕРґРµР»РµР№: {e}")
+            # РўР—: "РќРёРєР°РєРёС… РёСЃРєР»СЋС‡РµРЅРёР№" - РІРѕР·РІСЂР°С‰Р°РµРј С‚Рѕ, С‡С‚Рѕ СѓСЃРїРµР»Рё СЃРѕР±СЂР°С‚СЊ РёР»Рё РїСѓСЃС‚РѕР№ СЃРїРёСЃРѕРє?
+            # "РЎРїРёСЃРѕРє РІРѕР·РІСЂР°С‰Р°РµС‚СЃСЏ Р±РµР· РѕС€РёР±РѕРє" -> Р»СѓС‡С€Рµ РІРµСЂРЅСѓС‚СЊ РїСѓСЃС‚РѕР№ РёР»Рё С‡Р°СЃС‚РёС‡РЅС‹Р№, РЅРѕ РЅРµ РєСЂР°С€РёС‚СЊ
+            # Р’ РґР°РЅРЅРѕРј СЃР»СѓС‡Р°Рµ РІРµСЂРЅРµРј С‚Рѕ, С‡С‚Рѕ РµСЃС‚СЊ, РµСЃР»Рё СѓРїР°Р»Рѕ РІ С†РёРєР»Рµ, 
+            # РёР»Рё РїСѓСЃС‚РѕР№, РµСЃР»Рё СѓРїР°Р»Рѕ РІС‹С€Рµ.
+            # РќРѕ РµСЃР»Рё СѓРїР°Р»Рѕ РЅР° РєРѕРЅРєСЂРµС‚РЅРѕР№ Р·Р°РєСѓРїРєРµ, Р»СѓС‡С€Рµ РїСЂРѕРїСѓСЃС‚РёС‚СЊ РµС‘.
             pass
             
         return result

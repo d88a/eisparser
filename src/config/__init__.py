@@ -17,6 +17,7 @@ STAGE4_PAGE_TIMEOUT_S = settings.stage4_page_timeout_s
 STAGE4_RATE_LIMIT_S = settings.stage4_rate_limit_s
 STAGE4_MAX_RETRIES = settings.stage4_max_retries
 STAGE4_SCROLL_TIMEOUT_S = settings.stage4_scroll_timeout_s
+WORKER_ENABLE_STAGE4 = settings.worker_enable_stage4
 
 __all__ = [
     'settings',
@@ -33,5 +34,6 @@ __all__ = [
     'STAGE4_RATE_LIMIT_S',
     'STAGE4_MAX_RETRIES',
     'STAGE4_SCROLL_TIMEOUT_S',
+    'WORKER_ENABLE_STAGE4',
 ]
 

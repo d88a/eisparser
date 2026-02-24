@@ -6,6 +6,7 @@ from .gis_service import GISService
 from .scraper_service import ScraperService
 from .eis_downloader_service import EISDownloaderService
 from .ai_processor_service import AIProcessorService
+from .worker_service import WorkerService
 
 __all__ = [
     'DatabaseService',
@@ -15,5 +16,6 @@ __all__ = [
     'GISService',
     'ScraperService',
     'EISDownloaderService',
-    'AIProcessorService'
+    'AIProcessorService',
+    'WorkerService'
 ]

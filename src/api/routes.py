@@ -232,13 +232,16 @@ def save_stage1_selected(req: SaveStage1SelectedRequest, admin: bool = Depends(a
             bid_end_date = (item.bid_end_date or "").strip()
             if not bid_end_date:
                 bid_end_date = pipeline.eis_downloader._extract_bid_end_date_from_text(combined_text)
+            initial_price = item.initial_price
+            if initial_price is None:
+                initial_price = pipeline.eis_downloader._extract_initial_price_from_text(combined_text)
 
             zakupka = Zakupka(
                 reg_number=reg_number,
                 description=item.description or "",
                 update_date=item.update_date or "",
                 bid_end_date=bid_end_date,
-                initial_price=item.initial_price,
+                initial_price=initial_price,
                 link=item.link or "",
                 combined_text=combined_text,
                 status='raw'
@@ -299,16 +302,13 @@ def run_stage2(req: RunStage2Request, admin: bool = Depends(admin_required)):
     from .app import get_pipeline
     pipeline = get_pipeline()
 
-    all_approved = set(pipeline.db.decisions.get_approved_reg_numbers(req.user_id, 1))
-
-    target_ids = []
+    pending_reg_numbers = {z.reg_number for z in pipeline.get_stage2_pending_items()}
+    target_ids = list(pending_reg_numbers)
     if req.reg_numbers:
-        target_ids = [r for r in req.reg_numbers if r in all_approved]
-    else:
-        target_ids = list(all_approved)
+        target_ids = [r for r in req.reg_numbers if r in pending_reg_numbers]
 
     if not target_ids:
-        return {"status": "warning", "message": "Нет одобренных закупок для запуска"}
+        return {"status": "warning", "message": "Нет закупок, ожидающих Stage 2"}
 
     result = pipeline.run_stage2(reg_numbers=target_ids, overwrite=req.overwrite)
 
@@ -329,9 +329,7 @@ def get_stage2_data(
     """РџРѕР»СѓС‡Р°РµС‚ РґР°РЅРЅС‹Рµ РґР»СЏ РїСЂРѕРІРµСЂРєРё AI (Stage 2) СЃ РїР°РіРёРЅР°С†РёРµР№."""
     from .app import get_pipeline
     pipeline = get_pipeline()
-    view_service = ViewService(pipeline.db)
-
-    items = view_service.get_zakupka_stage_view(user_id, 2)
+    items = ViewService(pipeline.db).get_zakupka_stage_view(user_id, 2)
     items.sort(key=lambda x: (x.processed_at or x.update_date or ""), reverse=True)
     total = len(items)
     page = items[offset: offset + limit]
@@ -816,26 +814,26 @@ def get_all_zakupki(
 
 @router.post("/api/admin/batch_stage2")
 def admin_batch_stage2(req: BatchStage2Request, admin: bool = Depends(admin_required)):
-    """РњР°СЃСЃРѕРІР°СЏ AI РѕР±СЂР°Р±РѕС‚РєР° РґР»СЏ Р·Р°РєСѓРїРѕРє СЃРѕ СЃС‚Р°С‚СѓСЃРѕРј 'raw'."""
+    """Массовая AI-обработка для закупок, ожидающих Stage 2."""
     from .app import get_pipeline
     pipeline = get_pipeline()
     
-    raw_zakupki = pipeline.db.zakupki.get_by_status('raw')
+    pending_zakupki = pipeline.get_stage2_pending_items()
     
-    if not raw_zakupki:
+    if not pending_zakupki:
         return {"status": "warning", "message": "Нет закупок для AI обработки"}
     
     if req.limit:
-        raw_zakupki = raw_zakupki[:req.limit]
+        pending_zakupki = pending_zakupki[:req.limit]
     
-    reg_numbers = [z.reg_number for z in raw_zakupki]
+    reg_numbers = [z.reg_number for z in pending_zakupki]
     result = pipeline.run_stage2(reg_numbers=reg_numbers)
     
     return {
         "status": "ok" if result.success else "error",
         "message": result.message,
         "processed": result.data.get("processed", 0),
-        "total_available": len(raw_zakupki),
+        "total_available": len(pending_zakupki),
         "errors": result.errors
     }
 

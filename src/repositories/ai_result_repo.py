@@ -1,20 +1,21 @@
-"""
-Репозиторий для результатов ИИ-анализа.
-"""
-from typing import Optional, List
-from .base import BaseRepository
+﻿"""Repository for AI analysis results."""
+
+from typing import List, Optional
+
 from models.ai_result import AIResult
+
+from .base import BaseRepository
 
 
 class AIResultRepository(BaseRepository[AIResult]):
-    """Репозиторий для CRUD операций с результатами ИИ."""
-    
+    """CRUD for AI results."""
+
     def create_table(self) -> bool:
-        """Создаёт таблицу ai_results."""
         def _create():
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("""
+                cursor.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS ai_results (
                         reg_number TEXT PRIMARY KEY,
                         zakupka_name TEXT,
@@ -31,85 +32,104 @@ class AIResultRepository(BaseRepository[AIResult]):
                         zakazchik TEXT,
                         FOREIGN KEY (reg_number) REFERENCES zakupki (reg_number)
                     )
-                """)
+                    """
+                )
                 conn.commit()
                 return True
-        
+
         return self.execute_with_retry(_create) or False
-    
+
     def save(self, result: AIResult) -> bool:
-        """Сохраняет или обновляет результат ИИ."""
         def _save():
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT OR REPLACE INTO ai_results
-                    (reg_number, zakupka_name, address, city,
-                     area_min_m2, area_max_m2, rooms, rooms_parsed,
-                     floor, building_floors_min, year_build_str, wear_percent,
-                     zakazchik)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    result.reg_number, result.zakupka_name, result.address,
-                    result.city,
-                    result.area_min_m2, result.area_max_m2, result.rooms,
-                    result.rooms_parsed, result.floor, result.building_floors_min,
-                    result.year_build_str, result.wear_percent, result.zakazchik
-                ))
+                sql = self.build_upsert_sql(
+                    table="ai_results",
+                    insert_columns=[
+                        "reg_number",
+                        "zakupka_name",
+                        "address",
+                        "city",
+                        "area_min_m2",
+                        "area_max_m2",
+                        "rooms",
+                        "rooms_parsed",
+                        "floor",
+                        "building_floors_min",
+                        "year_build_str",
+                        "wear_percent",
+                        "zakazchik",
+                    ],
+                    conflict_columns=["reg_number"],
+                )
+                cursor.execute(
+                    sql,
+                    (
+                        result.reg_number,
+                        result.zakupka_name,
+                        result.address,
+                        result.city,
+                        result.area_min_m2,
+                        result.area_max_m2,
+                        result.rooms,
+                        result.rooms_parsed,
+                        result.floor,
+                        result.building_floors_min,
+                        result.year_build_str,
+                        result.wear_percent,
+                        result.zakazchik,
+                    ),
+                )
                 conn.commit()
                 return cursor.rowcount > 0
-        
+
         return self.execute_with_retry(_save) or False
-    
+
     def get_by_id(self, reg_number: str) -> Optional[AIResult]:
-        """Получает результат по номеру закупки."""
         def _get():
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT * FROM ai_results WHERE reg_number = ?",
-                    (reg_number,)
-                )
+                cursor.execute("SELECT * FROM ai_results WHERE reg_number = ?", (reg_number,))
                 row = cursor.fetchone()
-                return AIResult.from_dict(dict(row)) if row else None
-        
+                row_dict = self.row_to_dict(row)
+                return AIResult.from_dict(row_dict) if row_dict else None
+
         return self.execute_with_retry(_get)
-    
+
     def get_all(self) -> List[AIResult]:
-        """Получает все результаты ИИ, отсортированные по дате (свежие первые)."""
         def _get_all():
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT * FROM ai_results ORDER BY rowid DESC")
+                cursor.execute("SELECT * FROM ai_results ORDER BY reg_number DESC")
                 rows = cursor.fetchall()
-                return [AIResult.from_dict(dict(row)) for row in rows]
-        
+                result = []
+                for row in rows:
+                    row_dict = self.row_to_dict(row)
+                    if row_dict:
+                        result.append(AIResult.from_dict(row_dict))
+                return result
+
         return self.execute_with_retry(_get_all) or []
-    
+
     def delete(self, reg_number: str) -> bool:
-        """Удаляет результат."""
         def _delete():
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    "DELETE FROM ai_results WHERE reg_number = ?",
-                    (reg_number,)
-                )
+                cursor.execute("DELETE FROM ai_results WHERE reg_number = ?", (reg_number,))
                 conn.commit()
                 return cursor.rowcount > 0
-        
+
         return self.execute_with_retry(_delete) or False
-    
+
     def update_rooms_parsed(self, reg_number: str, rooms_parsed: str) -> bool:
-        """Обновляет распарсенные комнаты."""
         def _update():
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     "UPDATE ai_results SET rooms_parsed = ? WHERE reg_number = ?",
-                    (rooms_parsed, reg_number)
+                    (rooms_parsed, reg_number),
                 )
                 conn.commit()
                 return cursor.rowcount > 0
-        
+
         return self.execute_with_retry(_update) or False

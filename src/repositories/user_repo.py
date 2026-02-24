@@ -1,21 +1,19 @@
-"""
-Репозиторий пользователей.
-"""
-from typing import Optional, List
-from repositories.base import BaseRepository
+﻿"""Repository for users."""
+
+from typing import List, Optional
+
 from models.user import User
+from repositories.base import BaseRepository
 
 
 class UserRepository(BaseRepository[User]):
-    """
-    Репозиторий для работы с таблицей users.
-    """
-    
+    """CRUD operations for users table."""
+
     def create_table(self) -> bool:
-        """Создаёт таблицу users."""
-        sql = """
+        id_sql = "BIGSERIAL PRIMARY KEY" if self.is_postgres else "INTEGER PRIMARY KEY AUTOINCREMENT"
+        sql = f"""
         CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {id_sql},
             email TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'admin',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -25,119 +23,80 @@ class UserRepository(BaseRepository[User]):
             with self.get_connection() as conn:
                 conn.execute(sql)
                 conn.commit()
-            self.logger.info("Таблица users создана/проверена")
+            self.logger.info("users table is ready")
             return True
-        except Exception as e:
-            self.logger.error(f"Ошибка создания таблицы users: {e}")
+        except Exception as exc:
+            self.logger.error("Failed to create users table: %s", exc)
             return False
-    
+
     def save(self, user: User) -> bool:
-        """
-        Сохраняет пользователя в БД.
-        
-        Args:
-            user: Объект User
-            
-        Returns:
-            True если успешно
-        """
-        sql = """
-        INSERT INTO users (email, role, created_at)
-        VALUES (?, ?, ?)
-        """
+        base_sql = "INSERT INTO users (email, role, created_at) VALUES (?, ?, ?)"
+        sql = f"{base_sql} RETURNING id" if self.is_postgres else base_sql
         try:
             with self.get_connection() as conn:
-                cursor = conn.execute(
-                    sql,
-                    (user.email, user.role, user.created_at.isoformat())
-                )
+                cursor = conn.execute(sql, (user.email, user.role, user.created_at.isoformat()))
+                if self.is_postgres:
+                    row = cursor.fetchone()
+                    user.id = row[0] if row else None
+                else:
+                    user.id = cursor.lastrowid
                 conn.commit()
-                user.id = cursor.lastrowid
-            self.logger.info(f"Пользователь {user.email} сохранён с id={user.id}")
+            self.logger.info("User saved: %s id=%s", user.email, user.id)
             return True
-        except Exception as e:
-            self.logger.error(f"Ошибка сохранения пользователя {user.email}: {e}")
+        except Exception as exc:
+            self.logger.error("Failed to save user %s: %s", user.email, exc)
             return False
-    
+
     def get_by_id(self, id: int) -> Optional[User]:
-        """
-        Получает пользователя по ID.
-        
-        Args:
-            id: ID пользователя
-            
-        Returns:
-            User или None
-        """
         sql = "SELECT * FROM users WHERE id = ?"
         try:
             with self.get_connection() as conn:
                 row = conn.execute(sql, (id,)).fetchone()
                 if row:
                     return User.from_row(row)
-        except Exception as e:
-            self.logger.error(f"Ошибка получения пользователя id={id}: {e}")
+        except Exception as exc:
+            self.logger.error("Failed to get user id=%s: %s", id, exc)
         return None
-    
+
     def get_by_email(self, email: str) -> Optional[User]:
-        """
-        Получает пользователя по email.
-        
-        Args:
-            email: Email пользователя
-            
-        Returns:
-            User или None
-        """
         sql = "SELECT * FROM users WHERE email = ?"
         try:
             with self.get_connection() as conn:
                 row = conn.execute(sql, (email,)).fetchone()
                 if row:
                     return User.from_row(row)
-        except Exception as e:
-            self.logger.error(f"Ошибка получения пользователя email={email}: {e}")
+        except Exception as exc:
+            self.logger.error("Failed to get user email=%s: %s", email, exc)
         return None
-    
+
     def get_all(self) -> List[User]:
-        """Получает всех пользователей."""
         sql = "SELECT * FROM users ORDER BY created_at DESC"
         try:
             with self.get_connection() as conn:
                 rows = conn.execute(sql).fetchall()
                 return [User.from_row(row) for row in rows]
-        except Exception as e:
-            self.logger.error(f"Ошибка получения пользователей: {e}")
+        except Exception as exc:
+            self.logger.error("Failed to get users: %s", exc)
             return []
-    
+
     def delete(self, id: int) -> bool:
-        """
-        Удаляет пользователя по ID.
-        
-        Args:
-            id: ID пользователя
-            
-        Returns:
-            True если успешно
-        """
         sql = "DELETE FROM users WHERE id = ?"
         try:
             with self.get_connection() as conn:
                 conn.execute(sql, (id,))
                 conn.commit()
-            self.logger.info(f"Пользователь id={id} удалён")
+            self.logger.info("User deleted id=%s", id)
             return True
-        except Exception as e:
-            self.logger.error(f"Ошибка удаления пользователя id={id}: {e}")
+        except Exception as exc:
+            self.logger.error("Failed to delete user id=%s: %s", id, exc)
             return False
-    
+
     def count(self) -> int:
-        """Возвращает количество пользователей."""
         sql = "SELECT COUNT(*) FROM users"
         try:
             with self.get_connection() as conn:
                 result = conn.execute(sql).fetchone()
                 return result[0] if result else 0
-        except Exception as e:
-            self.logger.error(f"Ошибка подсчёта пользователей: {e}")
+        except Exception as exc:
+            self.logger.error("Failed to count users: %s", exc)
             return 0

@@ -53,6 +53,59 @@ class Pipeline:
     def init_database(self) -> bool:
         """РРЅРёС†РёР°Р»РёР·РёСЂСѓРµС‚ Р±Р°Р·Сѓ РґР°РЅРЅС‹С…."""
         return self.db.init_database()
+
+    def _stage2_eligibility_reason(
+        self,
+        zakupka: Zakupka,
+        ai_result: Optional[AIResult],
+        overwrite: bool = False,
+    ) -> tuple[bool, Optional[str]]:
+        """Checks whether purchase is eligible for Stage 2."""
+        status = (zakupka.status or "").strip()
+
+        if status not in ("raw", "ai_error"):
+            return False, "status_not_pending"
+
+        if not (zakupka.combined_text or "").strip():
+            return False, "no_combined_text"
+
+        # raw + existing AI is considered already processed.
+        # ai_error is allowed for retry even if stale AI row exists.
+        if ai_result is not None and not overwrite and status != "ai_error":
+            return False, "already_has_ai_result"
+
+        return True, None
+
+    def get_stage2_pending_items(self) -> List[Zakupka]:
+        """Returns purchases pending Stage 2 by unified criteria."""
+        candidates = self.db.zakupki.get_by_statuses(["raw", "ai_error"])
+        pending_items = self.db.get_stage2_pending_items(overwrite=False)
+        pending_reg_numbers = {z.reg_number for z in pending_items}
+        pending: List[Zakupka] = []
+        skipped = {
+            "status_not_pending": 0,
+            "no_combined_text": 0,
+            "already_has_ai_result": 0,
+        }
+
+        for zakupka in candidates:
+            if zakupka.reg_number in pending_reg_numbers:
+                pending.append(zakupka)
+                continue
+            ai_result = self.ai.get_result(zakupka.reg_number)
+            _, reason = self._stage2_eligibility_reason(zakupka, ai_result, overwrite=False)
+            if reason:
+                skipped[reason] = skipped.get(reason, 0) + 1
+
+        self.logger.info(
+            "Stage2 pending: candidates=%s pending=%s skipped_no_text=%s skipped_has_ai=%s skipped_status=%s",
+            len(candidates),
+            len(pending),
+            skipped.get("no_combined_text", 0),
+            skipped.get("already_has_ai_result", 0),
+            skipped.get("status_not_pending", 0),
+        )
+        return pending
     
     def run_stage3_for_zakupka(
         self,
@@ -296,21 +349,25 @@ class Pipeline:
         self.logger.info(f"Stage 1: Загрузка закупок ОКПД2 68.10.11 (limit={limit})")
         
         errors = []
-        saved = 0
-        skipped = 0
-        found = 0  # Р’СЃРµ РЅР°Р№РґРµРЅРЅС‹Рµ РїРѕРґС…РѕРґСЏС‰РёРµ Р·Р°РєСѓРїРєРё (РґР»СЏ РѕСЃС‚Р°РЅРѕРІРєРё)
+        saved_new = 0
+        skipped_existing = 0
         processed_reg_numbers = set()  # Р”Р»СЏ РґРµРґСѓРїР»РёРєР°С†РёРё
         
         try:
             page = 1
             max_pages = 50
             
-            while found < limit and page <= max_pages:
+            while saved_new < limit and page <= max_pages:
                 self.logger.info(f"Страница {page}...")
                 
                 # РСЃРїРѕР»СЊР·СѓРµРј РћРћРџ-СЃРµСЂРІРёСЃ EISDownloaderService
                 html = self.eis_downloader._fetch_search_page(page)
                 if not html:
+                    if page == 1:
+                        fail_msg = "Stage 1 aborted: EIS page 1 is unavailable after retries"
+                        self.logger.error(fail_msg)
+                        errors.append(fail_msg)
+                        break
                     page += 1
                     continue
                 
@@ -320,7 +377,7 @@ class Pipeline:
                     continue
                 
                 for p in page_purchases:
-                    if found >= limit:
+                    if saved_new >= limit:
                         break
                     
                     reg_number = p.get('reg_number', '')
@@ -334,8 +391,7 @@ class Pipeline:
                     existing = self.eis.get_zakupka(reg_number)
                     if existing and existing.combined_text:
                         self.logger.info(f"  [SKIP] {reg_number} — уже в БД")
-                        skipped += 1
-                        found += 1
+                        skipped_existing += 1
                         continue
                     
                     # Р—Р°РіСЂСѓР¶Р°РµРј РґРѕРєСѓРјРµРЅС‚С‹ С‡РµСЂРµР· РћРћРџ-СЃРµСЂРІРёСЃ
@@ -361,17 +417,26 @@ class Pipeline:
                             reg_number=reg_number,
                             description=p.get('description', ''),
                             update_date=str(p.get('update_date', '')),
+                            bid_end_date=(
+                                p.get('bid_end_date')
+                                or self.eis_downloader._extract_bid_end_date_from_text(combined_text)
+                                or ""
+                            ),
+                            initial_price=(
+                                p.get('initial_price')
+                                if p.get('initial_price') is not None
+                                else self.eis_downloader._extract_initial_price_from_text(combined_text)
+                            ),
                             link=p.get('link', ''),
                             combined_text=combined_text
                         )
                         if self.eis.save_zakupka(zakupka):
-                            saved += 1
-                            found += 1
+                            saved_new += 1
                             
                             # РћР±РЅРѕРІР»СЏРµРј СЃС‚Р°С‚СѓСЃ РЅР° 'raw' (Р­С‚Р°Рї 2)
                             self.db.zakupki.update_status(reg_number, 'raw')
                             
-                            self.logger.info(f"[OK] Сохранена закупка {reg_number} ({found}/{limit})")
+                            self.logger.info(f"[OK] Сохранена закупка {reg_number} ({saved_new}/{limit})")
                             
                             # РЈРґР°Р»СЏРµРј РїР°РїРєСѓ вЂ” С‚РµРєСЃС‚ СѓР¶Рµ РІ Р‘Р”
                             zakupka_dir = self.eis_downloader.zakupki_dir / reg_number
@@ -385,11 +450,21 @@ class Pipeline:
                 
                 page += 1
             
-            if found >= limit:
-                self.logger.info(f"Достигнут лимит {limit} закупок")
+            if saved_new >= limit:
+                self.logger.info(f"Достигнут лимит {limit} новых закупок")
             
-            success = saved > 0 or len(errors) == 0
-            message = f"Загружено {saved} новых закупок (пропущено {skipped} существующих)"
+            self.logger.info(
+                "Stage 1 counters: saved_new=%s skipped_existing=%s errors=%s",
+                saved_new,
+                skipped_existing,
+                len(errors),
+            )
+            
+            success = len(errors) == 0
+            message = (
+                f"Загружено {saved_new} новых закупок "
+                f"(пропущено {skipped_existing} существующих, ошибок {len(errors)})"
+            )
             
         except Exception as e:
             success = False
@@ -402,7 +477,14 @@ class Pipeline:
             stage=1,
             success=success,
             message=message,
-            data={"limit": limit, "downloaded": saved, "skipped": skipped},
+            data={
+                "limit": limit,
+                "saved_new": saved_new,
+                "downloaded": saved_new,
+                "skipped_existing": skipped_existing,
+                "skipped": skipped_existing,
+                "errors": len(errors),
+            },
             errors=errors
         )
     
@@ -472,12 +554,16 @@ class Pipeline:
         import time
 
         delay_s = getattr(settings, "ai_stage2_delay_s", 0.0)
+        raw_total = len(self.db.zakupki.get_by_status('raw'))
+        ai_error_total = len(self.db.zakupki.get_by_status('ai_error'))
+        self.logger.info("Stage 2 queue snapshot: raw=%s ai_error=%s", raw_total, ai_error_total)
 
         errors = []
         processed = 0
         cities = []
         skipped_no_text = 0
         skipped_already_processed = 0
+        skipped_not_pending = 0
 
         try:
             if reg_numbers:
@@ -485,24 +571,29 @@ class Pipeline:
                 if not zakupki:
                     self.logger.warning(f"[SKIP] Нет закупок по переданным reg_numbers: {reg_numbers}")
             else:
-                zakupki = self.eis.get_all_zakupki()
+                zakupki = self.get_stage2_pending_items()
                 if limit:
-                    zakupki = zakupki[-limit:]
+                    zakupki = zakupki[:limit]
 
             self.logger.info(f"Найдено закупок для Stage 2: {len(zakupki)}")
 
             for i, zakupka in enumerate(zakupki, 1):
                 reg_number = zakupka.reg_number
 
-                if not zakupka.combined_text:
-                    self.logger.info(f"[SKIP] {reg_number}: отсутствует combined_text")
-                    skipped_no_text += 1
-                    continue
-
                 existing = self.ai.get_result(reg_number)
-                if existing and not overwrite:
-                    self.logger.info(f"[SKIP] {reg_number}: AI-результат уже существует")
-                    skipped_already_processed += 1
+                eligible, reason = self._stage2_eligibility_reason(zakupka, existing, overwrite=overwrite)
+                if not eligible:
+                    if reason == "no_combined_text":
+                        self.logger.info(f"[SKIP] {reg_number}: отсутствует combined_text")
+                        skipped_no_text += 1
+                    elif reason == "already_has_ai_result":
+                        self.logger.info(f"[SKIP] {reg_number}: AI-результат уже существует")
+                        skipped_already_processed += 1
+                    else:
+                        self.logger.info(
+                            f"[SKIP] {reg_number}: статус '{zakupka.status}' не подходит для Stage 2"
+                        )
+                        skipped_not_pending += 1
                     continue
 
                 try:
@@ -521,6 +612,7 @@ class Pipeline:
                 except Exception as e:
                     errors.append(f"{reg_number}: {e}")
                     self.logger.error(f"[ERROR] Ошибка Stage 2 для {reg_number}: {e}")
+                    self.db.zakupki.update_status(reg_number, 'ai_error')
 
                 if delay_s and i < len(zakupki):
                     time.sleep(delay_s)
@@ -528,6 +620,7 @@ class Pipeline:
             self.logger.info("Итоги Stage 2:")
             self.logger.info(f"  [SKIP] Без текста: {skipped_no_text}")
             self.logger.info(f"  [SKIP] Уже обработано: {skipped_already_processed}")
+            self.logger.info(f"  [SKIP] Не подходит по статусу: {skipped_not_pending}")
             self.logger.info(f"  [OK] Обработано: {processed}")
             self.logger.info(f"  [ERROR] Ошибок: {len(errors)}")
 
@@ -540,6 +633,8 @@ class Pipeline:
                 msg_parts.append(f"пропущено (уже было) {skipped_already_processed}")
             if skipped_no_text > 0:
                 msg_parts.append(f"пропущено (без текста) {skipped_no_text}")
+            if skipped_not_pending > 0:
+                msg_parts.append(f"пропущено (статус) {skipped_not_pending}")
 
             message = ", ".join(msg_parts) if msg_parts else "данные для обработки не найдены"
             if errors:

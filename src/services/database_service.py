@@ -103,6 +103,27 @@ class DatabaseService:
         # 2. Загружаем сами закупки
         return self.zakupki.get_by_reg_numbers(approved_ids)
 
+    def get_stage2_pending_items(self, overwrite: bool = False) -> list:
+        """Returns purchases pending Stage 2 by unified criteria."""
+        candidates = self.zakupki.get_by_statuses(["raw", "ai_error"])
+        pending = []
+
+        for zakupka in candidates:
+            status_name = (zakupka.status or "").strip()
+            if status_name not in ("raw", "ai_error"):
+                continue
+
+            if not (zakupka.combined_text or "").strip():
+                continue
+
+            ai_result = self.ai_results.get_by_id(zakupka.reg_number)
+            if ai_result is not None and not overwrite and status_name != "ai_error":
+                continue
+
+            pending.append(zakupka)
+
+        return pending
+
 
 # Глобальный экземпляр (singleton pattern)
 _db_service: DatabaseService = None

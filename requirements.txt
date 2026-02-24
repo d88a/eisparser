@@ -1,4 +1,4 @@
-fastapi
+﻿fastapi
 uvicorn
 jinja2
 python-multipart
@@ -11,3 +11,4 @@ olefile
 xlrd
 playwright
 playwright-stealth
+psycopg2-binary
