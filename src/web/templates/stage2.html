@@ -60,7 +60,7 @@
             <a href="/admin/logout" style="color: #ef4444; margin-left: 20px;">Выход</a>
         </nav>
         <div class="stats-bar">
-            <span>На проверке: <strong id="stat-count">0</strong></span>
+            <span><span id="stat-count-label">На проверке</span>: <strong id="stat-count">0</strong></span>
             <span style="margin-left:15px">Выбрано: <strong id="stat-selected">0</strong></span>
         </div>
     </header>
@@ -68,8 +68,8 @@
         <div class="stage2-page-actions">
         <div class="stage2-actions-line">
             <div class="stage2-view-toggle">
-                <button id="btn-view-pending" class="stage2-view-btn active" type="button">Pending</button>
-                <button id="btn-view-recent" class="stage2-view-btn" type="button">Только что обработанные</button>
+                <button id="btn-view-pending" class="stage2-view-btn active" type="button">На проверке</button>
+                <button id="btn-view-processed" class="stage2-view-btn" type="button">Все обработанные ИИ</button>
             </div>
             <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.9em;">
                 <input type="checkbox" id="select-all-stage2">

@@ -38,6 +38,11 @@ crontab -l
 tail -n 200 /home/c77461/priv-mag.ru/app/src/results/logs/cron_worker.log
 ```
 
+## Cron (NetAngels) - рабочая команда
+```bash
+*/5 * * * * cd /home/c77461/priv-mag.ru/app && mkdir -p /home/c77461/priv-mag.ru/app/src/results/logs && set -a && . /home/c77461/priv-mag.ru/app/src/.env && set +a && AI_STAGE2_DELAY_S='4' WORKER_ENABLE_STAGE4='false' /home/c77461/priv-mag.ru/.env/bin/python src/main.py worker --interval 1 --limit 5 --top-n 10 --max-cycles 1 >> /home/c77461/priv-mag.ru/app/src/results/logs/cron_worker.log 2>&1
+```
+
 ## systemd (для отдельного VDS)
 Файл unit: `deploy/systemd/eisparser-worker.service`
 

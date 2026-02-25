@@ -60,18 +60,18 @@ document.addEventListener("DOMContentLoaded", () => {
     if (selectAll) selectAll.addEventListener("change", () => toggleSelectAllVisible(selectAll.checked));
 
     const btnPending = document.getElementById("btn-view-pending");
-    const btnRecent = document.getElementById("btn-view-recent");
+    const btnProcessed = document.getElementById("btn-view-processed");
     if (btnPending) btnPending.addEventListener("click", () => setStage2View("pending"));
-    if (btnRecent) btnRecent.addEventListener("click", () => setStage2View("recent"));
+    if (btnProcessed) btnProcessed.addEventListener("click", () => setStage2View("processed"));
 });
 
 function setStage2View(viewName) {
-    stage2View = viewName === "recent" ? "recent" : "pending";
+    stage2View = viewName === "processed" ? "processed" : "pending";
     const btnPending = document.getElementById("btn-view-pending");
-    const btnRecent = document.getElementById("btn-view-recent");
+    const btnProcessed = document.getElementById("btn-view-processed");
 
     if (btnPending) btnPending.classList.toggle("active", stage2View === "pending");
-    if (btnRecent) btnRecent.classList.toggle("active", stage2View === "recent");
+    if (btnProcessed) btnProcessed.classList.toggle("active", stage2View === "processed");
 
     selectedItems.clear();
     selectedRegNumber = null;
@@ -163,7 +163,7 @@ async function loadList(reset = false) {
             if (workspace) {
                 workspace.innerHTML = stage2View === "pending"
                     ? '<div class="empty-state">Нет закупок для проверки</div>'
-                    : '<div class="empty-state">Нет недавно обработанных закупок</div>';
+                    : '<div class="empty-state">Нет обработанных ИИ закупок</div>';
             }
             selectedRegNumber = null;
         }
@@ -181,7 +181,7 @@ function renderList(items, reset) {
     if (reset && items.length === 0) {
         list.innerHTML = stage2View === "pending"
             ? '<div style="padding:20px; text-align:center; color:#999">Нет закупок для проверки.<br>Добавьте их на Этапе 1.</div>'
-            : '<div style="padding:20px; text-align:center; color:#999">Нет недавно обработанных закупок.</div>';
+            : '<div style="padding:20px; text-align:center; color:#999">Нет обработанных ИИ закупок.</div>';
         return;
     }
 
@@ -429,11 +429,11 @@ async function runStage2() {
                 failedRegs.length > 0 ? "info" : "success"
             );
             if (processedRegs.length > 0) {
-                stage2View = "recent";
+                stage2View = "processed";
                 const btnPending = document.getElementById("btn-view-pending");
-                const btnRecent = document.getElementById("btn-view-recent");
+                const btnProcessed = document.getElementById("btn-view-processed");
                 if (btnPending) btnPending.classList.toggle("active", false);
-                if (btnRecent) btnRecent.classList.toggle("active", true);
+                if (btnProcessed) btnProcessed.classList.toggle("active", true);
             }
         } else {
             setRunStatus(result.message || "Ошибка запуска ИИ-анализа.", "error");
@@ -455,7 +455,7 @@ async function runStage2() {
             selectedRegNumber = null;
             const workspace = document.getElementById("review-workspace");
             if (workspace) {
-                workspace.innerHTML = '<div class="empty-state">Закупка обработана и перенесена на Этап 3. Pending-список Stage 2 пуст.</div>';
+                workspace.innerHTML = '<div class="empty-state">Закупка обработана и перенесена на Этап 3. Список «На проверке» пуст.</div>';
             }
         }
     } catch (e) {
@@ -469,8 +469,10 @@ async function runStage2() {
 
 function updateStats() {
     const statCount = document.getElementById("stat-count");
+    const statCountLabel = document.getElementById("stat-count-label");
     const statSelected = document.getElementById("stat-selected");
 
+    if (statCountLabel) statCountLabel.textContent = stage2View === "pending" ? "На проверке" : "Обработано ИИ";
     if (statCount) statCount.textContent = stage2Total || currentData.length;
     if (statSelected) statSelected.textContent = selectedItems.size;
 

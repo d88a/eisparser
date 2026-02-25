@@ -2,7 +2,7 @@
 API Р РѕСѓС‚С‹ РґР»СЏ UI.
 """
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Request, HTTPException, Body, Depends, Response, status
@@ -338,7 +338,6 @@ def get_stage2_data(
     offset: int = 0,
     limit: int = 20,
     view: str = "pending",
-    recent_minutes: int = 60,
     admin: bool = Depends(admin_required)
 ):
     """РџРѕР»СѓС‡Р°РµС‚ РґР°РЅРЅС‹Рµ РґР»СЏ РїСЂРѕРІРµСЂРєРё AI (Stage 2) СЃ РїР°РіРёРЅР°С†РёРµР№."""
@@ -347,11 +346,10 @@ def get_stage2_data(
     _ = user_id  # keep API compatibility
 
     page = []
-    if view == "recent":
+    if view in ("processed", "recent"):
         all_ready = pipeline.db.zakupki.get_by_status("ai_ready")
-        threshold = datetime.now() - timedelta(minutes=max(1, int(recent_minutes or 60)))
 
-        recent = []
+        processed = []
         for z in all_ready:
             ts = z.processed_at
             if not ts:
@@ -363,12 +361,11 @@ def get_stage2_data(
                     processed_dt = datetime.fromisoformat(str(ts))
                 except Exception:
                     continue
-            if processed_dt >= threshold:
-                recent.append((processed_dt, z))
+            processed.append((processed_dt, z))
 
-        recent.sort(key=lambda x: x[0], reverse=True)
-        total = len(recent)
-        page_items = [z for _, z in recent[offset: offset + limit]]
+        processed.sort(key=lambda x: x[0], reverse=True)
+        total = len(processed)
+        page_items = [z for _, z in processed[offset: offset + limit]]
 
         for z in page_items:
             ai = pipeline.db.ai_results.get_by_id(z.reg_number)
@@ -495,30 +492,44 @@ def get_stage3_data(
 def get_stage4_data(
     offset: int = 0,
     limit: int = 20,
+    view: str = "queue",
     admin: bool = Depends(admin_required)
 ):
     """Return purchases visible on Stage 4 page."""
     from .app import get_pipeline
     pipeline = get_pipeline()
 
-    # Keep processed purchases in the same queue so operator can re-open results
-    # after run_stage4 without switching pages.
-    stage4_statuses = ("url_ready", "listings_fresh", "listings_stale")
+    if view == "processed":
+        stage4_statuses = ("listings_fresh", "listings_stale")
+    else:
+        stage4_statuses = ("url_ready",)
+
     by_reg = {}
     for status_name in stage4_statuses:
         for z in pipeline.db.zakupki.get_by_status(status_name):
             by_reg[z.reg_number] = z
 
     zakupki = list(by_reg.values())
-    zakupki = sorted(
-        zakupki,
-        key=lambda z: (
-            str(z.processed_at) if z.processed_at else (
-                str(z.prepared_at) if z.prepared_at else z.update_date or ""
-            )
-        ),
-        reverse=True
-    )
+    if view == "processed":
+        zakupki = sorted(
+            zakupki,
+            key=lambda z: (
+                str(z.processed_at) if z.processed_at else (
+                    str(z.prepared_at) if z.prepared_at else z.update_date or ""
+                )
+            ),
+            reverse=True
+        )
+    else:
+        zakupki = sorted(
+            zakupki,
+            key=lambda z: (
+                str(z.prepared_at) if z.prepared_at else (
+                    str(z.processed_at) if z.processed_at else z.update_date or ""
+                )
+            ),
+            reverse=True
+        )
 
     total = len(zakupki)
     page = zakupki[offset: offset + limit]
@@ -542,7 +553,8 @@ def get_stage4_data(
         "items": items,
         "total": total,
         "offset": offset,
-        "limit": limit
+        "limit": limit,
+        "view": view,
     }
 
 

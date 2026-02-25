@@ -10,6 +10,7 @@ let stage4Offset = 0;
 const stage4Limit = 20;
 let stage4Total = 0;
 let stage4Items = [];
+let stage4View = "queue";
 let selectedItems = new Set();
 let selectedRegNumber = null;
 
@@ -18,7 +19,18 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("btn-run-stage4").addEventListener("click", runStage4);
     document.getElementById("btn-load-more-stage4").addEventListener("click", () => loadStage4(false));
     document.getElementById("select-all-stage4").addEventListener("change", (e) => toggleSelectAllVisible(e.target.checked));
+    document.getElementById("btn-view-queue-stage4").addEventListener("click", () => setStage4View("queue"));
+    document.getElementById("btn-view-processed-stage4").addEventListener("click", () => setStage4View("processed"));
 });
+
+function setStage4View(viewName) {
+    stage4View = viewName === "processed" ? "processed" : "queue";
+    const btnQueue = document.getElementById("btn-view-queue-stage4");
+    const btnProcessed = document.getElementById("btn-view-processed-stage4");
+    if (btnQueue) btnQueue.classList.toggle("active", stage4View === "queue");
+    if (btnProcessed) btnProcessed.classList.toggle("active", stage4View === "processed");
+    loadStage4(true);
+}
 
 function escapeHtml(value) {
     return String(value ?? "")
@@ -67,6 +79,8 @@ async function loadStage4(reset = false, keepSelected = false) {
             stage4Items = [];
             selectedItems.clear();
             if (!keepSelected) selectedRegNumber = null;
+            const selectAll = document.getElementById("select-all-stage4");
+            if (selectAll) selectAll.checked = false;
 
             document.getElementById("stage4-list").innerHTML = "";
             document.getElementById("stage4-workspace").innerHTML = '<div class="empty-state">Выберите закупку слева</div>';
@@ -76,7 +90,7 @@ async function loadStage4(reset = false, keepSelected = false) {
             }
         }
 
-        const resp = await fetch(`${API_BASE}/stage4?offset=${stage4Offset}&limit=${stage4Limit}`);
+        const resp = await fetch(`${API_BASE}/stage4?view=${stage4View}&offset=${stage4Offset}&limit=${stage4Limit}`);
         if (!resp.ok) throw new Error("Не удалось загрузить список закупок Этапа 4");
 
         const data = await resp.json();
@@ -111,13 +125,16 @@ function renderList(items, reset) {
     if (reset) list.innerHTML = "";
 
     if (reset && items.length === 0) {
-        list.innerHTML = '<div style="padding:20px; text-align:center; color:#999">Нет закупок для Этапа 4</div>';
+        list.innerHTML = stage4View === "queue"
+            ? '<div style="padding:20px; text-align:center; color:#999">Нет закупок на сбор</div>'
+            : '<div style="padding:20px; text-align:center; color:#999">Нет обработанных закупок</div>';
         return;
     }
 
     items.forEach((item) => {
         const checked = selectedItems.has(item.reg_number);
         const hasStage3Url = !!item.two_gis_url;
+        const selectionEnabled = stage4View === "queue" && hasStage3Url;
         const statusLabel = STAGE4_STATUS_LABELS[item.status] || item.status || "—";
 
         const div = document.createElement("div");
@@ -125,7 +142,7 @@ function renderList(items, reset) {
         div.dataset.reg = item.reg_number;
 
         div.innerHTML = `
-            <input type="checkbox" class="row-select-stage4" ${checked ? "checked" : ""} ${hasStage3Url ? "" : "disabled"} onclick="event.stopPropagation(); toggleSelection('${item.reg_number}', this.checked)">
+            <input type="checkbox" class="row-select-stage4" ${checked ? "checked" : ""} ${selectionEnabled ? "" : "disabled"} onclick="event.stopPropagation(); toggleSelection('${item.reg_number}', this.checked)">
             <div class="list-item-content">
                 <div class="list-item-header">${item.reg_number}</div>
                 <div class="list-item-desc">${item.ai_city || "—"} | ${item.bid_end_date || "—"} | ${formatPrice(item.initial_price)}</div>
@@ -166,7 +183,16 @@ function toggleSelectAllVisible(checked) {
 
 function updateRunButton() {
     const btn = document.getElementById("btn-run-stage4");
-    btn.disabled = selectedItems.size === 0;
+    const topN = document.getElementById("top-n-stage4");
+    const details = document.getElementById("details-stage4");
+    const selectAll = document.getElementById("select-all-stage4");
+    const controlsEnabled = stage4View === "queue";
+
+    if (topN) topN.disabled = !controlsEnabled;
+    if (details) details.disabled = !controlsEnabled;
+    if (selectAll) selectAll.disabled = !controlsEnabled;
+
+    btn.disabled = !controlsEnabled || selectedItems.size === 0;
     btn.textContent = selectedItems.size > 0
         ? `Собрать объявления (${selectedItems.size})`
         : "Собрать объявления";
@@ -273,6 +299,11 @@ function extractApiError(payload) {
 }
 
 async function runStage4() {
+    if (stage4View !== "queue") {
+        setStage4Status("Запуск доступен только во вкладке «На сбор».", "error");
+        return;
+    }
+
     if (selectedItems.size === 0) {
         setStage4Status("Выберите закупки галочками для запуска.", "error");
         return;
@@ -307,6 +338,11 @@ async function runStage4() {
         setStage4Status(`Готово: обработано закупок ${result.processed || 0}, собрано объявлений ${result.total_listings || 0}.`, "success");
         renderErrors(result.errors || []);
 
+        stage4View = "processed";
+        const btnQueue = document.getElementById("btn-view-queue-stage4");
+        const btnProcessed = document.getElementById("btn-view-processed-stage4");
+        if (btnQueue) btnQueue.classList.toggle("active", false);
+        if (btnProcessed) btnProcessed.classList.toggle("active", true);
         selectedRegNumber = prevSelectedReg;
         await loadStage4(true, true);
     } catch (e) {
