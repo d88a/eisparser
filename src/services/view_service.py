@@ -50,7 +50,7 @@ class ViewService:
             # SPECIAL HANDLING FOR STAGE 2 (AI Review)
             elif stage == 2:
                 # Stage 2 uses unified pending source (raw/ai_error).
-                zakupki = self.db.get_stage2_pending_items(overwrite=False)
+                zakupki = self.db.get_stage2_pending_items(overwrite=False, limit=None)
                 self.logger.info("Stage2 view selection: selected=%s", len(zakupki))
             
             else:

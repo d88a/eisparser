@@ -61,6 +61,11 @@ class Pipeline:
         overwrite: bool = False,
     ) -> tuple[bool, Optional[str]]:
         """Checks whether purchase is eligible for Stage 2."""
+        if overwrite:
+            if not (zakupka.combined_text or "").strip():
+                return False, "no_combined_text"
+            return True, None
+
         status = (zakupka.status or "").strip()
 
         if status not in ("raw", "ai_error"):
@@ -76,36 +81,27 @@ class Pipeline:
 
         return True, None
 
-    def get_stage2_pending_items(self) -> List[Zakupka]:
-        """Returns purchases pending Stage 2 by unified criteria."""
-        candidates = self.db.zakupki.get_by_statuses(["raw", "ai_error"])
-        pending_items = self.db.get_stage2_pending_items(overwrite=False)
-        pending_reg_numbers = {z.reg_number for z in pending_items}
-        pending: List[Zakupka] = []
-        skipped = {
-            "status_not_pending": 0,
-            "no_combined_text": 0,
-            "already_has_ai_result": 0,
-        }
+    def get_stage2_pending_items(self, limit: Optional[int] = None, offset: int = 0) -> List[Zakupka]:
+        """Returns Stage 2 pending items (full queue by default)."""
+        items = self.db.get_stage2_pending_items(overwrite=False, limit=limit, offset=offset)
+        if limit is None:
+            self.logger.info(
+                "Stage2 pending full selection: returned=%s offset=%s",
+                len(items),
+                offset,
+            )
+        else:
+            self.logger.info(
+                "Stage2 pending page selection: returned=%s offset=%s limit=%s",
+                len(items),
+                offset,
+                limit,
+            )
+        return items
 
-        for zakupka in candidates:
-            if zakupka.reg_number in pending_reg_numbers:
-                pending.append(zakupka)
-                continue
-            ai_result = self.ai.get_result(zakupka.reg_number)
-            _, reason = self._stage2_eligibility_reason(zakupka, ai_result, overwrite=False)
-            if reason:
-                skipped[reason] = skipped.get(reason, 0) + 1
-
-        self.logger.info(
-            "Stage2 pending: candidates=%s pending=%s skipped_no_text=%s skipped_has_ai=%s skipped_status=%s",
-            len(candidates),
-            len(pending),
-            skipped.get("no_combined_text", 0),
-            skipped.get("already_has_ai_result", 0),
-            skipped.get("status_not_pending", 0),
-        )
-        return pending
+    def get_stage2_pending_page(self, offset: int = 0, limit: int = 20) -> tuple[List[Zakupka], int]:
+        """Returns paginated Stage 2 pending list."""
+        return self.db.get_stage2_pending_page(offset=offset, limit=limit)
     
     def run_stage3_for_zakupka(
         self,
@@ -355,7 +351,11 @@ class Pipeline:
         
         try:
             page = 1
-            max_pages = 50
+            try:
+                max_pages = max(1, int(os.getenv("STAGE1_MAX_PAGES", "10")))
+            except Exception:
+                max_pages = 10
+            self.logger.info("Stage 1 max_pages=%s", max_pages)
             
             while saved_new < limit and page <= max_pages:
                 self.logger.info(f"Страница {page}...")
@@ -554,12 +554,15 @@ class Pipeline:
         import time
 
         delay_s = getattr(settings, "ai_stage2_delay_s", 0.0)
-        raw_total = len(self.db.zakupki.get_by_status('raw'))
-        ai_error_total = len(self.db.zakupki.get_by_status('ai_error'))
+        status_counts = self.db.zakupki.get_status_counts()
+        raw_total = int(status_counts.get('raw', 0))
+        ai_error_total = int(status_counts.get('ai_error', 0))
         self.logger.info("Stage 2 queue snapshot: raw=%s ai_error=%s", raw_total, ai_error_total)
 
         errors = []
         processed = 0
+        processed_reg_numbers: List[str] = []
+        failed_reg_numbers: List[str] = []
         cities = []
         skipped_no_text = 0
         skipped_already_processed = 0
@@ -571,9 +574,21 @@ class Pipeline:
                 if not zakupki:
                     self.logger.warning(f"[SKIP] Нет закупок по переданным reg_numbers: {reg_numbers}")
             else:
-                zakupki = self.get_stage2_pending_items()
                 if limit:
-                    zakupki = zakupki[:limit]
+                    batch_limit = int(limit)
+                    zakupki, pending_total = self.get_stage2_pending_page(offset=0, limit=batch_limit)
+                    self.logger.info(
+                        "Stage 2 page selection: pending_total=%s selected_now=%s limit=%s",
+                        pending_total,
+                        len(zakupki),
+                        batch_limit,
+                    )
+                else:
+                    zakupki = self.get_stage2_pending_items(limit=None, offset=0)
+                    self.logger.info(
+                        "Stage 2 full pending selection: selected_now=%s",
+                        len(zakupki),
+                    )
 
             self.logger.info(f"Найдено закупок для Stage 2: {len(zakupki)}")
 
@@ -601,16 +616,33 @@ class Pipeline:
 
                     ai_result = self.ai_processor.process_zakupka(zakupka)
 
-                    if ai_result and self.ai.save_result(ai_result):
-                        processed += 1
-                        if ai_result.city and ai_result.city not in cities:
-                            cities.append(ai_result.city)
+                    if ai_result is None:
+                        err = f"{reg_number}: AI returned empty result"
+                        errors.append(err)
+                        failed_reg_numbers.append(reg_number)
+                        self.logger.error(f"[ERROR] {err}")
+                        self.db.zakupki.update_status(reg_number, 'ai_error')
+                        continue
 
-                        self.db.zakupki.update_status(reg_number, 'ai_ready')
-                        self.logger.info(f"[OK] AI-результат сохранён: {reg_number}")
+                    if not self.ai.save_result(ai_result):
+                        err = f"{reg_number}: failed to save AI result"
+                        errors.append(err)
+                        failed_reg_numbers.append(reg_number)
+                        self.logger.error(f"[ERROR] {err}")
+                        self.db.zakupki.update_status(reg_number, 'ai_error')
+                        continue
+
+                    processed += 1
+                    processed_reg_numbers.append(reg_number)
+                    if ai_result.city and ai_result.city not in cities:
+                        cities.append(ai_result.city)
+
+                    self.db.zakupki.update_status(reg_number, 'ai_ready')
+                    self.logger.info(f"[OK] AI-результат сохранён: {reg_number}")
 
                 except Exception as e:
                     errors.append(f"{reg_number}: {e}")
+                    failed_reg_numbers.append(reg_number)
                     self.logger.error(f"[ERROR] Ошибка Stage 2 для {reg_number}: {e}")
                     self.db.zakupki.update_status(reg_number, 'ai_error')
 
@@ -651,7 +683,12 @@ class Pipeline:
             stage=2,
             success=success,
             message=message,
-            data={"limit": limit, "processed": processed},
+            data={
+                "limit": limit,
+                "processed": processed,
+                "processed_reg_numbers": processed_reg_numbers,
+                "failed_reg_numbers": failed_reg_numbers,
+            },
             errors=errors
         )
     def run_stage3(self, limit: int = None, reg_numbers: List[str] = None, overwrite: bool = False) -> StageResult:

@@ -2,6 +2,7 @@
 API Р РѕСѓС‚С‹ РґР»СЏ UI.
 """
 from typing import List, Optional
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Request, HTTPException, Body, Depends, Response, status
@@ -10,7 +11,6 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from config.settings import settings
-from services.view_service import ViewService
 from models.decision import Decision
 from models.zakupka import Zakupka
 from models.user_override import UserOverride
@@ -302,10 +302,21 @@ def run_stage2(req: RunStage2Request, admin: bool = Depends(admin_required)):
     from .app import get_pipeline
     pipeline = get_pipeline()
 
-    pending_reg_numbers = {z.reg_number for z in pipeline.get_stage2_pending_items()}
-    target_ids = list(pending_reg_numbers)
+    target_ids: List[str] = []
     if req.reg_numbers:
-        target_ids = [r for r in req.reg_numbers if r in pending_reg_numbers]
+        if req.overwrite:
+            target_ids = list(req.reg_numbers)
+        else:
+            # Fast path: filter only provided IDs, no full pending queue scan.
+            selected = pipeline.eis.get_by_reg_numbers(req.reg_numbers)
+            for z in selected:
+                ai_result = pipeline.ai.get_result(z.reg_number)
+                eligible, _ = pipeline._stage2_eligibility_reason(z, ai_result, overwrite=False)
+                if eligible:
+                    target_ids.append(z.reg_number)
+    else:
+        pending_items = pipeline.get_stage2_pending_items(limit=None, offset=0)
+        target_ids = [z.reg_number for z in pending_items]
 
     if not target_ids:
         return {"status": "warning", "message": "Нет закупок, ожидающих Stage 2"}
@@ -316,6 +327,8 @@ def run_stage2(req: RunStage2Request, admin: bool = Depends(admin_required)):
         "status": "ok" if result.success else "error",
         "message": result.message,
         "processed": result.data.get("processed", 0),
+        "processed_reg_numbers": result.data.get("processed_reg_numbers", []),
+        "failed_reg_numbers": result.data.get("failed_reg_numbers", []),
         "errors": result.errors
     }
 
@@ -324,21 +337,94 @@ def get_stage2_data(
     user_id: int = 1,
     offset: int = 0,
     limit: int = 20,
+    view: str = "pending",
+    recent_minutes: int = 60,
     admin: bool = Depends(admin_required)
 ):
     """РџРѕР»СѓС‡Р°РµС‚ РґР°РЅРЅС‹Рµ РґР»СЏ РїСЂРѕРІРµСЂРєРё AI (Stage 2) СЃ РїР°РіРёРЅР°С†РёРµР№."""
     from .app import get_pipeline
     pipeline = get_pipeline()
-    items = ViewService(pipeline.db).get_zakupka_stage_view(user_id, 2)
-    items.sort(key=lambda x: (x.processed_at or x.update_date or ""), reverse=True)
-    total = len(items)
-    page = items[offset: offset + limit]
+    _ = user_id  # keep API compatibility
+
+    page = []
+    if view == "recent":
+        all_ready = pipeline.db.zakupki.get_by_status("ai_ready")
+        threshold = datetime.now() - timedelta(minutes=max(1, int(recent_minutes or 60)))
+
+        recent = []
+        for z in all_ready:
+            ts = z.processed_at
+            if not ts:
+                continue
+            if isinstance(ts, datetime):
+                processed_dt = ts
+            else:
+                try:
+                    processed_dt = datetime.fromisoformat(str(ts))
+                except Exception:
+                    continue
+            if processed_dt >= threshold:
+                recent.append((processed_dt, z))
+
+        recent.sort(key=lambda x: x[0], reverse=True)
+        total = len(recent)
+        page_items = [z for _, z in recent[offset: offset + limit]]
+
+        for z in page_items:
+            ai = pipeline.db.ai_results.get_by_id(z.reg_number)
+            page.append({
+                "reg_number": z.reg_number,
+                "description": z.description or "",
+                "update_date": z.update_date or "",
+                "bid_end_date": z.bid_end_date or "",
+                "initial_price": z.initial_price,
+                "processed_at": z.processed_at.isoformat() if isinstance(z.processed_at, datetime) else str(z.processed_at or ""),
+                "combined_text": z.combined_text or "",
+                "status": z.status,
+                "ai_city": ai.city if ai else None,
+                "ai_area_min": ai.area_min_m2 if ai else None,
+                "ai_area_max": ai.area_max_m2 if ai else None,
+                "ai_zakupka_name": ai.zakupka_name if ai else None,
+                "ai_address": ai.address if ai else None,
+                "ai_rooms": ai.rooms if ai else None,
+                "ai_floor": ai.floor if ai else None,
+                "ai_building_floors_min": ai.building_floors_min if ai else None,
+                "ai_year_build": ai.year_build_str if ai else None,
+                "ai_wear_percent": ai.wear_percent if ai else None,
+                "ai_zakazchik": ai.zakazchik if ai else None,
+            })
+    else:
+        page_items, total = pipeline.get_stage2_pending_page(offset=offset, limit=limit)
+        for z in page_items:
+            page.append({
+                "reg_number": z.reg_number,
+                "description": z.description or "",
+                "update_date": z.update_date or "",
+                "bid_end_date": z.bid_end_date or "",
+                "initial_price": z.initial_price,
+                "processed_at": z.processed_at.isoformat() if z.processed_at else None,
+                "combined_text": z.combined_text or "",
+                "status": z.status,
+                # Stage2 UI can render without AI preview fields.
+                "ai_city": None,
+                "ai_area_min": None,
+                "ai_area_max": None,
+                "ai_zakupka_name": None,
+                "ai_address": None,
+                "ai_rooms": None,
+                "ai_floor": None,
+                "ai_building_floors_min": None,
+                "ai_year_build": None,
+                "ai_wear_percent": None,
+                "ai_zakazchik": None,
+            })
 
     return {
         "items": page,
         "total": total,
         "offset": offset,
-        "limit": limit
+        "limit": limit,
+        "view": view,
     }
 
 
@@ -817,15 +903,18 @@ def admin_batch_stage2(req: BatchStage2Request, admin: bool = Depends(admin_requ
     """Массовая AI-обработка для закупок, ожидающих Stage 2."""
     from .app import get_pipeline
     pipeline = get_pipeline()
-    
-    pending_zakupki = pipeline.get_stage2_pending_items()
-    
-    if not pending_zakupki:
-        return {"status": "warning", "message": "Нет закупок для AI обработки"}
-    
+
     if req.limit:
-        pending_zakupki = pending_zakupki[:req.limit]
-    
+        page_limit = int(req.limit)
+        pending_zakupki, pending_total = pipeline.get_stage2_pending_page(offset=0, limit=page_limit)
+        total_available = pending_total
+    else:
+        pending_zakupki = pipeline.get_stage2_pending_items(limit=None, offset=0)
+        total_available = len(pending_zakupki)
+
+    if total_available == 0 or not pending_zakupki:
+        return {"status": "warning", "message": "Нет закупок для AI обработки"}
+
     reg_numbers = [z.reg_number for z in pending_zakupki]
     result = pipeline.run_stage2(reg_numbers=reg_numbers)
     
@@ -833,7 +922,7 @@ def admin_batch_stage2(req: BatchStage2Request, admin: bool = Depends(admin_requ
         "status": "ok" if result.success else "error",
         "message": result.message,
         "processed": result.data.get("processed", 0),
-        "total_available": len(pending_zakupki),
+        "total_available": total_available,
         "errors": result.errors
     }
 

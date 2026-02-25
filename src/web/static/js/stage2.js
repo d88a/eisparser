@@ -10,6 +10,7 @@ let currentEditField = null;
 let stage2Offset = 0;
 const stage2Limit = 20;
 let stage2Total = 0;
+let stage2View = "pending";
 
 const AI_FIELDS = [
     { key: "ai_zakupka_name", label: "Название" },
@@ -57,7 +58,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const selectAll = document.getElementById("select-all-stage2");
     if (selectAll) selectAll.addEventListener("change", () => toggleSelectAllVisible(selectAll.checked));
+
+    const btnPending = document.getElementById("btn-view-pending");
+    const btnRecent = document.getElementById("btn-view-recent");
+    if (btnPending) btnPending.addEventListener("click", () => setStage2View("pending"));
+    if (btnRecent) btnRecent.addEventListener("click", () => setStage2View("recent"));
 });
+
+function setStage2View(viewName) {
+    stage2View = viewName === "recent" ? "recent" : "pending";
+    const btnPending = document.getElementById("btn-view-pending");
+    const btnRecent = document.getElementById("btn-view-recent");
+
+    if (btnPending) btnPending.classList.toggle("active", stage2View === "pending");
+    if (btnRecent) btnRecent.classList.toggle("active", stage2View === "recent");
+
+    selectedItems.clear();
+    selectedRegNumber = null;
+    loadList(true);
+}
 
 function setRunStatus(message, type = "info") {
     const el = document.getElementById("stage2-run-status");
@@ -73,6 +92,18 @@ function setRunStatus(message, type = "info") {
     el.style.display = "block";
     el.className = `stage2-status ${type === "info" ? "" : type}`.trim();
     el.textContent = message;
+}
+
+function setRunStatusHtml(html, type = "info") {
+    const el = document.getElementById("stage2-run-status");
+    if (!el) return;
+    if (!html) {
+        setRunStatus("");
+        return;
+    }
+    el.style.display = "block";
+    el.className = `stage2-status ${type === "info" ? "" : type}`.trim();
+    el.innerHTML = html;
 }
 
 function openRunConfirmModal() {
@@ -104,7 +135,7 @@ async function loadList(reset = false) {
             if (listEl) listEl.innerHTML = "";
         }
 
-        const response = await fetch(`${API_BASE}/stage2?user_id=${USER_ID}&offset=${stage2Offset}&limit=${stage2Limit}`);
+        const response = await fetch(`${API_BASE}/stage2?user_id=${USER_ID}&view=${stage2View}&offset=${stage2Offset}&limit=${stage2Limit}`);
         if (!response.ok) throw new Error("Не удалось загрузить закупки на Этапе 2");
 
         const data = await response.json();
@@ -129,7 +160,11 @@ async function loadList(reset = false) {
 
         if (currentData.length === 0) {
             const workspace = document.getElementById("review-workspace");
-            if (workspace) workspace.innerHTML = '<div class="empty-state">Нет закупок для проверки</div>';
+            if (workspace) {
+                workspace.innerHTML = stage2View === "pending"
+                    ? '<div class="empty-state">Нет закупок для проверки</div>'
+                    : '<div class="empty-state">Нет недавно обработанных закупок</div>';
+            }
             selectedRegNumber = null;
         }
     } catch (e) {
@@ -144,7 +179,9 @@ function renderList(items, reset) {
     if (reset) list.innerHTML = "";
 
     if (reset && items.length === 0) {
-        list.innerHTML = '<div style="padding:20px; text-align:center; color:#999">Нет закупок для проверки.<br>Добавьте их на Этапе 1.</div>';
+        list.innerHTML = stage2View === "pending"
+            ? '<div style="padding:20px; text-align:center; color:#999">Нет закупок для проверки.<br>Добавьте их на Этапе 1.</div>'
+            : '<div style="padding:20px; text-align:center; color:#999">Нет недавно обработанных закупок.</div>';
         return;
     }
 
@@ -159,7 +196,7 @@ function renderList(items, reset) {
             <div class="list-item-content" onclick="selectItem('${item.reg_number}')">
                 <div class="list-item-header">${item.reg_number}</div>
                 <div class="list-item-desc">
-                    ${item.ai_city || "—"} | ${item.ai_area_min || "—"} м² | ${item.initial_price ? `${(item.initial_price / 1000000).toFixed(1)} млн` : "-"}
+                    ${item.ai_city || "—"} | ${item.ai_area_min || "—"} м² | ${item.initial_price ? `${(item.initial_price / 1000000).toFixed(1)} млн` : "-"} | ${item.status || "-"}
                 </div>
             </div>
         `;
@@ -376,14 +413,51 @@ async function runStage2() {
 
         const result = await response.json();
         if (result.status === "ok") {
-            setRunStatus(`Готово: обработано ${result.processed || 0}.`, "success");
+            const processedRegs = Array.isArray(result.processed_reg_numbers) ? result.processed_reg_numbers : [];
+            const failedRegs = Array.isArray(result.failed_reg_numbers) ? result.failed_reg_numbers : [];
+
+            const successPart = `Обработано: ${result.processed || 0}`;
+            const movedPart = processedRegs.length > 0
+                ? `Перенесены на Этап 3: ${processedRegs.join(", ")}.`
+                : "Обработанные закупки будут доступны на Этапе 3.";
+            const failedPart = failedRegs.length > 0
+                ? `<br>Не обработаны: ${failedRegs.join(", ")}.`
+                : "";
+
+            setRunStatusHtml(
+                `${successPart}. ${movedPart}${failedPart} <a href="/stage3" style="margin-left:6px;">Перейти на Этап 3</a>`,
+                failedRegs.length > 0 ? "info" : "success"
+            );
+            if (processedRegs.length > 0) {
+                stage2View = "recent";
+                const btnPending = document.getElementById("btn-view-pending");
+                const btnRecent = document.getElementById("btn-view-recent");
+                if (btnPending) btnPending.classList.toggle("active", false);
+                if (btnRecent) btnRecent.classList.toggle("active", true);
+            }
         } else {
             setRunStatus(result.message || "Ошибка запуска ИИ-анализа.", "error");
         }
 
+        const prevSelected = selectedRegNumber;
         await loadList(true);
         selectedItems.clear();
         updateStats();
+
+        if (currentData.length > 0) {
+            const stillExists = prevSelected && currentData.some((x) => x.reg_number === prevSelected);
+            if (stillExists) {
+                await selectItem(prevSelected);
+            } else {
+                await selectItem(currentData[0].reg_number);
+            }
+        } else {
+            selectedRegNumber = null;
+            const workspace = document.getElementById("review-workspace");
+            if (workspace) {
+                workspace.innerHTML = '<div class="empty-state">Закупка обработана и перенесена на Этап 3. Pending-список Stage 2 пуст.</div>';
+            }
+        }
     } catch (e) {
         console.error(e);
         setRunStatus("Ошибка соединения при запуске Этапа 2.", "error");
@@ -403,7 +477,7 @@ function updateStats() {
     const btn = document.getElementById("btn-run-stage2");
     if (!btn) return;
 
-    btn.disabled = selectedItems.size === 0;
+    btn.disabled = selectedItems.size === 0 || stage2View !== "pending";
     btn.textContent = selectedItems.size > 0
         ? `Запустить ИИ-анализ (${selectedItems.size})`
         : "Запустить ИИ-анализ";

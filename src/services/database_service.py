@@ -3,7 +3,9 @@
 Объединяет все репозитории и инициализирует БД.
 """
 from pathlib import Path
+from typing import Optional
 from config.settings import settings
+from models.zakupka import Zakupka
 from repositories import ZakupkaRepository, AIResultRepository, ListingRepository, UserRepository, DecisionRepository
 from repositories.user_override_repo import UserOverrideRepository
 from repositories.user_selection_repo import UserSelectionRepository
@@ -22,18 +24,22 @@ class DatabaseService:
             db_path: Путь к БД. Если не указан, берётся из settings.
         """
         self.db_path = db_path or settings.database_path
+        self.database_url = settings.database_url
         self.logger = get_logger("DatabaseService")
         
         # Инициализируем репозитории
-        self.zakupki = ZakupkaRepository(self.db_path)
-        self.ai_results = AIResultRepository(self.db_path)
-        self.listings = ListingRepository(self.db_path)
-        self.users = UserRepository(self.db_path)
-        self.decisions = DecisionRepository(self.db_path)
-        self.user_overrides = UserOverrideRepository(self.db_path)
-        self.user_selections = UserSelectionRepository(self.db_path)
+        self.zakupki = ZakupkaRepository(self.db_path, self.database_url)
+        self.ai_results = AIResultRepository(self.db_path, self.database_url)
+        self.listings = ListingRepository(self.db_path, self.database_url)
+        self.users = UserRepository(self.db_path, self.database_url)
+        self.decisions = DecisionRepository(self.db_path, self.database_url)
+        self.user_overrides = UserOverrideRepository(self.db_path, self.database_url)
+        self.user_selections = UserSelectionRepository(self.db_path, self.database_url)
         
-        self.logger.debug(f"DatabaseService инициализирован: {self.db_path}")
+        if self.database_url:
+            self.logger.info("Database backend: PostgreSQL (%s)", self.database_url)
+        else:
+            self.logger.info("Database backend: SQLite (%s)", self.db_path)
     
     def init_database(self) -> bool:
         """
@@ -57,6 +63,24 @@ class DatabaseService:
             self.user_overrides.create_table(),
             self.user_selections.create_table()
         ])
+
+        # Ensure performance-critical indexes for Stage 2 queries.
+        if success:
+            try:
+                with self.zakupki.get_connection() as conn:
+                    conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_zakupki_status ON zakupki(status)"
+                    )
+                    conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_ai_results_reg_number ON ai_results(reg_number)"
+                    )
+                    conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_zakupki_processed_at ON zakupki(processed_at)"
+                    )
+                    conn.commit()
+                self.logger.info("Stage 2 indexes ensured")
+            except Exception as e:
+                self.logger.error(f"Failed to ensure Stage 2 indexes: {e}")
 
         # Cleanup legacy decisions marked as "selected" to avoid stale stage logic.
         try:
@@ -103,26 +127,121 @@ class DatabaseService:
         # 2. Загружаем сами закупки
         return self.zakupki.get_by_reg_numbers(approved_ids)
 
-    def get_stage2_pending_items(self, overwrite: bool = False) -> list:
-        """Returns purchases pending Stage 2 by unified criteria."""
-        candidates = self.zakupki.get_by_statuses(["raw", "ai_error"])
-        pending = []
+    def _get_stage2_overwrite_page(self, offset: int = 0, limit: int = 100) -> list[Zakupka]:
+        """Returns one overwrite-compatible page for Stage 2."""
+        offset = max(0, int(offset or 0))
+        limit = max(1, int(limit or 100))
+        with self.zakupki.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT z.*
+                FROM zakupki z
+                WHERE z.status IN (?, ?)
+                  AND COALESCE(TRIM(z.combined_text), '') <> ''
+                ORDER BY
+                    CASE WHEN z.processed_at IS NULL THEN 1 ELSE 0 END,
+                    z.processed_at DESC,
+                    z.update_date DESC
+                LIMIT ? OFFSET ?
+                """,
+                ("raw", "ai_error", limit, offset),
+            )
+            rows = cur.fetchall()
 
-        for zakupka in candidates:
-            status_name = (zakupka.status or "").strip()
-            if status_name not in ("raw", "ai_error"):
-                continue
+        items = []
+        for row in rows:
+            row_dict = self.zakupki.row_to_dict(row)
+            if row_dict:
+                items.append(Zakupka.from_dict(row_dict))
+        return items
 
-            if not (zakupka.combined_text or "").strip():
-                continue
+    def get_stage2_pending_items(
+        self,
+        overwrite: bool = False,
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> list:
+        """
+        Returns Stage 2 pending items.
 
-            ai_result = self.ai_results.get_by_id(zakupka.reg_number)
-            if ai_result is not None and not overwrite and status_name != "ai_error":
-                continue
+        - limit=None: full queue (loaded in pages to avoid one heavy query)
+        - limit=N: one page only
+        """
+        offset = max(0, int(offset or 0))
+        page_size = max(1, int(limit or 100)) if limit is not None else 500
 
-            pending.append(zakupka)
+        if limit is not None:
+            if overwrite:
+                return self._get_stage2_overwrite_page(offset=offset, limit=page_size)
+            items, _ = self.get_stage2_pending_page(offset=offset, limit=page_size)
+            return items
 
-        return pending
+        all_items: list[Zakupka] = []
+        current_offset = offset
+        while True:
+            if overwrite:
+                page_items = self._get_stage2_overwrite_page(offset=current_offset, limit=page_size)
+            else:
+                page_items, _ = self.get_stage2_pending_page(offset=current_offset, limit=page_size)
+
+            if not page_items:
+                break
+
+            all_items.extend(page_items)
+            current_offset += len(page_items)
+            if len(page_items) < page_size:
+                break
+
+        return all_items
+
+    def get_stage2_pending_page(self, offset: int = 0, limit: int = 20) -> tuple[list[Zakupka], int]:
+        """Returns paginated Stage 2 pending purchases and total count."""
+        offset = max(0, int(offset or 0))
+        limit = max(1, int(limit or 20))
+
+        where_sql = """
+            FROM zakupki z
+            WHERE z.status IN (?, ?)
+              AND COALESCE(TRIM(z.combined_text), '') <> ''
+              AND (
+                    z.status = ?
+                    OR NOT EXISTS (
+                        SELECT 1
+                        FROM ai_results a
+                        WHERE a.reg_number = z.reg_number
+                    )
+              )
+        """
+        params = ("raw", "ai_error", "ai_error")
+
+        with self.zakupki.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(f"SELECT COUNT(*) AS c {where_sql}", params)
+            count_row = cur.fetchone()
+            total = int(count_row["c"] if hasattr(count_row, "keys") else count_row[0])
+
+            cur.execute(
+                f"""
+                SELECT z.*
+                {where_sql}
+                ORDER BY
+                    CASE WHEN z.processed_at IS NULL THEN 1 ELSE 0 END,
+                    z.processed_at DESC,
+                    z.update_date DESC
+                LIMIT ? OFFSET ?
+                """,
+                params + (limit, offset),
+            )
+            rows = cur.fetchall()
+
+        items = []
+        for row in rows:
+            row_dict = self.zakupki.row_to_dict(row)
+            if row_dict:
+                items.append(Zakupka.from_dict(row_dict))
+
+        return items, total
 
 
 # Глобальный экземпляр (singleton pattern)

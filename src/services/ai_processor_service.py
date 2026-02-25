@@ -6,14 +6,11 @@ import os
 import re
 import time
 from typing import Optional, Dict, Any, List
+from urllib.parse import urlsplit, urlunsplit
 import requests
 from requests.exceptions import JSONDecodeError
 
-from config import (
-    CEREBRAS_API_KEY_ENV,
-    CEREBRAS_API_URL,
-    CEREBRAS_MODEL,
-)
+from config.settings import settings
 from models.ai_result import AIResult
 from models.zakupka import Zakupka
 from repositories.ai_result_repo import AIResultRepository
@@ -88,10 +85,67 @@ class AIProcessorService:
             model_name: Название модели (по умолчанию из config)
         """
         self.repo = ai_result_repo
-        self.api_key = api_key or os.getenv(CEREBRAS_API_KEY_ENV)
-        self.model_name = model_name or CEREBRAS_MODEL
+        self.api_key = api_key or settings.cerebras_api_key or os.getenv("CEREBRAS_API_KEY")
+        self.model_name = model_name or settings.cerebras_model or os.getenv("CEREBRAS_MODEL", "gpt-oss-120b")
+        self.base_url = (settings.cerebras_base_url or os.getenv("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")).rstrip("/")
+        self.api_url = f"{self.base_url}/chat/completions"
         self.logger = get_logger("AIProcessorService")
+        self.logger.info("AI model selected: %s", self.model_name)
     
+    def _log_header_diagnostics(self, headers: Dict[str, str]):
+        """Logs latin-1 diagnostics for headers and proxy env variables."""
+        def _mask_header_value(key: str, value: str) -> str:
+            if key.lower() == "authorization":
+                if value.lower().startswith("bearer "):
+                    return "Bearer ****"
+                return "****"
+            return value
+
+        def _mask_proxy_value(value: str) -> str:
+            try:
+                parts = urlsplit(value)
+                if not parts.scheme:
+                    return "****"
+                host = parts.hostname or ""
+                netloc = host
+                if parts.port:
+                    netloc = f"{host}:{parts.port}"
+                return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+            except Exception:
+                return "****"
+
+        for key, value in headers.items():
+            value_str = str(value or "")
+            masked_value = _mask_header_value(key, value_str)
+            try:
+                value_str.encode("latin-1")
+                self.logger.debug("Header %s: len=%s repr=%r", key, len(value_str), masked_value[:80])
+            except UnicodeEncodeError as exc:
+                self.logger.error(
+                    "Header latin-1 encode error: %s len=%s repr=%r error=%s",
+                    key,
+                    len(value_str),
+                    masked_value[:120],
+                    exc,
+                )
+
+        for proxy_key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+            proxy_val = os.getenv(proxy_key, "")
+            if not proxy_val:
+                continue
+            masked_proxy = _mask_proxy_value(proxy_val)
+            try:
+                proxy_val.encode("latin-1")
+                self.logger.debug("Proxy env %s: len=%s repr=%r", proxy_key, len(proxy_val), masked_proxy[:80])
+            except UnicodeEncodeError as exc:
+                self.logger.error(
+                    "Proxy env latin-1 encode error: %s len=%s repr=%r error=%s",
+                    proxy_key,
+                    len(proxy_val),
+                    masked_proxy[:120],
+                    exc,
+                )
+
     def _prepare_text(self, text: str) -> tuple[str, bool]:
         """Подготавливает текст для промпта (обрезает если нужно)."""
         if len(text) <= self.MAX_PROMPT_CHARS:
@@ -103,7 +157,7 @@ class AIProcessorService:
     def _call_cerebras(self, text: str) -> Optional[Dict[str, Any]]:
         """Вызывает Cerebras API и возвращает извлечённые поля."""
         if not self.api_key:
-            raise RuntimeError(f"Не найден API ключ в переменной окружения {CEREBRAS_API_KEY_ENV}")
+            raise RuntimeError("CEREBRAS_API_KEY is not set")
         
         prepared_text, truncated = self._prepare_text(text)
         user_prompt = (
@@ -120,6 +174,7 @@ class AIProcessorService:
             "Content-Type": "application/json",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         }
+        self._log_header_diagnostics(headers)
         payload = {
             "model": self.model_name,
             "messages": [
@@ -135,7 +190,7 @@ class AIProcessorService:
 
         for attempt in range(1, max_retries + 1):
             resp = requests.post(
-                CEREBRAS_API_URL,
+                self.api_url,
                 headers=headers,
                 json=payload,
                 timeout=120,

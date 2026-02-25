@@ -1,150 +1,78 @@
-﻿# EIS Parser — админ-панель модерации закупок (MVP)
+﻿# EIS Parser - архитектура и рабочий контур
 
 ## Назначение
 Система автоматизирует обработку закупок недвижимости:
-1. Stage 1: загрузка списка закупок с ЕИС.
-2. Stage 2: ИИ-анализ.
-3. Stage 3: генерация ссылок 2ГИС.
-4. Stage 4: сбор объявлений по ссылке из Stage 3.
+1. Stage 1 - загрузка и сохранение закупок ЕИС.
+2. Stage 2 - ИИ-анализ текста закупки.
+3. Stage 3 - генерация ссылок 2ГИС.
+4. Stage 4 - сбор объявлений по ссылке Stage 3.
 
-## Контракт Stage 3 -> Stage 4
+## Контракт этапов
 - Каноническая ссылка процесса хранится в `zakupki.two_gis_url`.
-- Stage 4 запускается только по этой ссылке и не пересчитывает ее.
-- Если ссылки нет, UI показывает: `Ссылки нет (Этап 3)`.
+- Stage 4 работает только по `two_gis_url`.
+- Stage 2 pending: статусы `raw` и `ai_error`.
 
 ## Структура проекта
 ```text
 eisparser/
 ├── src/
-│   ├── api/                # FastAPI + роуты
-│   ├── config/             # настройки и .env
-│   ├── models/             # dataclass-модели
-│   ├── repositories/       # слой доступа к БД (SQLite/PostgreSQL)
-│   ├── services/           # бизнес-логика
-│   ├── web/                # templates + static
-│   ├── pipeline.py         # оркестратор стадий
-│   └── main.py             # CLI и запуск сервера
+│   ├── api/
+│   ├── config/
+│   ├── models/
+│   ├── repositories/
+│   ├── services/
+│   ├── web/
+│   ├── pipeline.py
+│   └── main.py
 ├── docs/
-├── results/                # локальная SQLite БД
-├── scripts/                # db-скрипты (инициализация/миграция)
-└── zakupki/                # временные файлы загрузки
+├── results/
+├── scripts/
+└── zakupki/
 ```
 
 ## Конфигурация (`src/.env`)
 Ключевые переменные:
-- `DATABASE_URL` — PostgreSQL URL, например `postgresql://user:pass@host:5432/eisparser`.
-- `DATABASE_PATH` — путь к SQLite (fallback для локальной разработки).
+- `DATABASE_URL` / `DATABASE_PATH`
 - `ADMIN_PASSWORD`
-- `CEREBRAS_API_KEY`
-- `CEREBRAS_BASE_URL`
-- `CEREBRAS_MODEL`
-- `COORDINATES_CSV_PATH`
+- `CEREBRAS_API_KEY`, `CEREBRAS_BASE_URL`, `CEREBRAS_MODEL`
 - `AI_STAGE2_DELAY_S`
-- `STAGE4_HEADLESS`
-- `STAGE4_USE_REAL_CHROME`
-- `WORKER_ENABLE_STAGE4` (`true` по умолчанию; `false` = worker без Stage 4)
+- `STAGE1_MAX_PAGES` (default `10`)
+- `WORKER_ENABLE_STAGE4`
 - `PROXY_URL` (опционально)
 
 Логика выбора БД:
-1. Если задан `DATABASE_URL` -> PostgreSQL.
-2. Если `DATABASE_URL` пуст -> SQLite через `DATABASE_PATH`.
+1. если задан `DATABASE_URL` - PostgreSQL;
+2. если `DATABASE_URL` пуст - SQLite (`DATABASE_PATH`).
 
-## Как поднять PostgreSQL
-Пример через Docker:
-```powershell
-docker run --name eisparser-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_USER=eis -e POSTGRES_DB=eisparser -p 5432:5432 -d postgres:16
-```
+## Важные технические правила
 
-Пример `DATABASE_URL`:
-```text
-postgresql://eis:postgres@127.0.0.1:5432/eisparser
-```
+### Stage 1
+- При недоступности страницы 1 ЕИС цикл Stage 1 прерывается.
+- Поля `bid_end_date` и `initial_price` заполняются из карточки, при отсутствии - fallback из `combined_text`.
+- Ограничение сканирования по страницам: `STAGE1_MAX_PAGES`.
 
-## Инициализация схемы PostgreSQL
-```powershell
-python scripts\init_postgres.py --database-url "postgresql://eis:postgres@127.0.0.1:5432/eisparser"
-```
+### Stage 2
+- Выборка pending идет по `raw`/`ai_error`.
+- `decisions` не является обязательным фильтром запуска Stage 2.
+- В ответе `run_stage2` возвращаются `processed_reg_numbers` и `failed_reg_numbers`.
 
-Используется SQL-схема: `scripts/postgres_schema.sql`.
+### БД
+- `DatabaseService` обязан прокидывать `database_url` во все репозитории.
+- При старте логируется backend: PostgreSQL/SQLite.
 
-## Миграция данных из SQLite -> PostgreSQL
-Источник по умолчанию: `results/eis_data.db`.
+## Запуск
 
-```powershell
-python scripts\migrate_sqlite_to_postgres.py --sqlite-path results\eis_data.db --database-url "postgresql://eis:postgres@127.0.0.1:5432/eisparser"
-```
-
-Полезная опция:
-```powershell
-python scripts\migrate_sqlite_to_postgres.py --sqlite-path results\eis_data.db --database-url "postgresql://eis:postgres@127.0.0.1:5432/eisparser" --reset
-```
-
-Переносятся таблицы:
-- `zakupki`
-- `ai_results`
-- `listings`
-- `decisions`
-- `user_overrides`
-- `user_selections`
-- `users`
-
-## Раздельный запуск процессов (одна общая PostgreSQL)
-### Сервер (фоновый автопроцесс)
-На сервере NetAngels задайте тот же `DATABASE_URL`, выставьте `WORKER_ENABLE_STAGE4=false` и запускайте worker:
-```powershell
-python src\main.py worker --interval 300 --limit 10 --top-n 10
-```
-
-### ПК владельца (админка)
-На ПК задайте тот же `DATABASE_URL` и запускайте UI:
+### Локально
 ```powershell
 python src\main.py server --host 127.0.0.1 --port 8000
-```
-
-Оба процесса работают с одной БД: изменения видны сразу с обеих сторон.
-Stage 4 запускается на ПК оператора вручную/по локальному расписанию.
-
-## Фоновый worker Stage 1-4
-Production-режим:
-```powershell
 python src\main.py worker --interval 300 --limit 10 --top-n 10
 ```
 
-Режим хостинга (только Stage 1-3):
-```text
-WORKER_ENABLE_STAGE4=false
-```
+### Прод (NetAngels)
+- Админка через ASGI (`APP_PATH=/home/c77461/priv-mag.ru/app/asgi.py`).
+- Воркер через cron (`--max-cycles 1` каждые 5 минут).
 
-Что делает worker в цикле:
-1. Stage 1 (по `--limit`)
-2. Stage 2 для закупок, ожидающих AI (`raw`/`ai_error`), без зависимости от `decisions`
-3. Stage 3 для закупок со статусом `ai_ready`
-4. Stage 4 для закупок со статусом `url_ready` (по `--top-n`, если `WORKER_ENABLE_STAGE4=true`)
-5. Сон `--interval` секунд
-
-Защита от двойного запуска:
-- PostgreSQL advisory lock (второй воркер завершается сразу с warning в логе).
-
-Поведение Stage 1:
-- При недоступности страницы 1 ЕИС после всех ретраев Stage 1 завершается сразу с ошибкой и без перехода к страницам 2+.
-- Лимит Stage 1 (`--limit`) считается только по новым сохраненным закупкам (`saved_new`), а существующие учитываются отдельно как `skipped_existing`.
-- Поля `bid_end_date` и `initial_price` заполняются при сохранении закупки; если в карточке ЕИС пусто, выполняется извлечение из `combined_text`.
-
-Логи:
-- `results/logs/worker.log` + ротация файлов.
-
-systemd unit:
-- `deploy/systemd/eisparser-worker.service`
-- пошаговый деплой: `docs/WORKER_VDS.md`
-
-## Локальный fallback на SQLite
-Если `DATABASE_URL` не задан, проект продолжает работать на SQLite без изменений запуска.
-
-## Полезные команды
-```powershell
-python src\main.py stats
-python src\main.py stage1 --limit 10
-python src\main.py stage2 --limit 5
-python src\main.py stage3 --limit 5
-python src\main.py stage4 --top-n 5 --limit 2 --details
-```
+Подробные runbook:
+- `docs/DEPLOY_AND_RUN.md`
+- `docs/WORKER_VDS.md`
+- `docs/LOCAL_TUNNEL_RUN.md`

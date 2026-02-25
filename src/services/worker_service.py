@@ -5,6 +5,8 @@ from __future__ import annotations
 import signal
 import threading
 import time
+import os
+from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from config.settings import settings
@@ -196,8 +198,9 @@ class WorkerService:
         new_reg_numbers = sorted(after_all - before_all)
         self.logger.info("Cycle %s new purchases from Stage 1: %s", cycle_number, len(new_reg_numbers))
 
-        stage2_pending = self.pipeline.get_stage2_pending_items()
-        if stage2_pending:
+        stage2_probe, stage2_total = self.pipeline.get_stage2_pending_page(offset=0, limit=1)
+        if stage2_probe:
+            self.logger.info("Stage 2 pending probe: total=%s", stage2_total)
             self._run_stage(
                 "Stage 2",
                 lambda: self.pipeline.run_stage2(limit=self.limit, overwrite=False),
@@ -245,6 +248,12 @@ class WorkerService:
         try:
             while not self._stop_event.is_set():
                 cycle_number += 1
+                self.logger.info(
+                    "Cron iteration start: ts=%s pid=%s cycle=%s",
+                    datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                    os.getpid(),
+                    cycle_number,
+                )
                 try:
                     self.run_cycle(cycle_number)
                 except Exception:
