@@ -249,7 +249,7 @@ function syncSelectAllCheckbox() {
 
 async function selectItem(regNumber) {
     selectedRegNumber = regNumber;
-    const item = currentData.find((i) => i.reg_number === regNumber);
+    let item = currentData.find((i) => i.reg_number === regNumber);
     if (!item) return;
 
     document.querySelectorAll(".list-item").forEach((el) => el.classList.remove("active"));
@@ -260,6 +260,21 @@ async function selectItem(regNumber) {
         currentOverrides = await resp.json();
     } catch (e) {
         currentOverrides = {};
+    }
+
+    // Load heavy fields lazily to speed up list loading.
+    if (!item.combined_text) {
+        try {
+            const detailResp = await fetch(`${API_BASE}/stage2/${regNumber}`);
+            if (detailResp.ok) {
+                const detail = await detailResp.json();
+                item = { ...item, ...detail };
+                const idx = currentData.findIndex((x) => x.reg_number === regNumber);
+                if (idx >= 0) currentData[idx] = item;
+            }
+        } catch (e) {
+            console.error(e);
+        }
     }
 
     renderWorkspace(item);

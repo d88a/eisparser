@@ -347,10 +347,16 @@ def get_stage2_data(
 
     page = []
     if view in ("processed", "recent"):
-        all_ready = pipeline.db.zakupki.get_by_status("ai_ready")
+        # Show all AI-processed purchases, regardless of current pipeline status.
+        ai_results = pipeline.db.ai_results.get_all()
+        reg_numbers = [r.reg_number for r in ai_results]
+        zakupki_by_reg = {z.reg_number: z for z in pipeline.db.zakupki.get_by_reg_numbers(reg_numbers)}
 
         processed = []
-        for z in all_ready:
+        for ai in ai_results:
+            z = zakupki_by_reg.get(ai.reg_number)
+            if not z:
+                continue
             ts = z.processed_at
             if not ts:
                 continue
@@ -376,7 +382,8 @@ def get_stage2_data(
                 "bid_end_date": z.bid_end_date or "",
                 "initial_price": z.initial_price,
                 "processed_at": z.processed_at.isoformat() if isinstance(z.processed_at, datetime) else str(z.processed_at or ""),
-                "combined_text": z.combined_text or "",
+                # Heavy field is loaded lazily via /api/stage2/{reg_number}
+                "combined_text": "",
                 "status": z.status,
                 "ai_city": ai.city if ai else None,
                 "ai_area_min": ai.area_min_m2 if ai else None,
@@ -400,7 +407,8 @@ def get_stage2_data(
                 "bid_end_date": z.bid_end_date or "",
                 "initial_price": z.initial_price,
                 "processed_at": z.processed_at.isoformat() if z.processed_at else None,
-                "combined_text": z.combined_text or "",
+                # Heavy field is loaded lazily via /api/stage2/{reg_number}
+                "combined_text": "",
                 "status": z.status,
                 # Stage2 UI can render without AI preview fields.
                 "ai_city": None,
@@ -422,6 +430,40 @@ def get_stage2_data(
         "offset": offset,
         "limit": limit,
         "view": view,
+    }
+
+
+@router.get("/api/stage2/{reg_number}")
+def get_stage2_item(reg_number: str, admin: bool = Depends(admin_required)):
+    """Return full Stage 2 payload for a single purchase (including combined_text)."""
+    from .app import get_pipeline
+    pipeline = get_pipeline()
+
+    z = pipeline.db.zakupki.get_by_id(reg_number)
+    if not z:
+        raise HTTPException(status_code=404, detail="Purchase not found")
+
+    ai = pipeline.db.ai_results.get_by_id(reg_number)
+    return {
+        "reg_number": z.reg_number,
+        "description": z.description or "",
+        "update_date": z.update_date or "",
+        "bid_end_date": z.bid_end_date or "",
+        "initial_price": z.initial_price,
+        "processed_at": z.processed_at.isoformat() if isinstance(z.processed_at, datetime) else str(z.processed_at or ""),
+        "combined_text": z.combined_text or "",
+        "status": z.status,
+        "ai_city": ai.city if ai else None,
+        "ai_area_min": ai.area_min_m2 if ai else None,
+        "ai_area_max": ai.area_max_m2 if ai else None,
+        "ai_zakupka_name": ai.zakupka_name if ai else None,
+        "ai_address": ai.address if ai else None,
+        "ai_rooms": ai.rooms if ai else None,
+        "ai_floor": ai.floor if ai else None,
+        "ai_building_floors_min": ai.building_floors_min if ai else None,
+        "ai_year_build": ai.year_build_str if ai else None,
+        "ai_wear_percent": ai.wear_percent if ai else None,
+        "ai_zakazchik": ai.zakazchik if ai else None,
     }
 
 
