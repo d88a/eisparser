@@ -6,8 +6,10 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 from pathlib import Path
 
+from config.settings import settings
 from pipeline import Pipeline
 from services.worker_service import WorkerService
 from utils.logger import get_logger, setup_logger
@@ -60,20 +62,46 @@ def cmd_server(_pipeline: Pipeline | None, args) -> int:
     import uvicorn
 
     print(f"Starting UI at http://{args.host}:{args.port}")
-    uvicorn.run("api.app:app", host=args.host, port=args.port, reload=True)
+    reload_enabled = bool(args.reload or settings.server_reload)
+    uvicorn.run("api.app:app", host=args.host, port=args.port, reload=reload_enabled)
     return 0
 
 
-def cmd_worker(pipeline: Pipeline, args) -> int:
+def _run_worker(pipeline: Pipeline, args, mode: str) -> int:
     worker = WorkerService(
         pipeline=pipeline,
         interval=args.interval,
         limit=args.limit,
         top_n=args.top_n,
         get_details=args.details,
+        mode=mode,
     )
     max_cycles = args.max_cycles if args.max_cycles and args.max_cycles > 0 else None
     return worker.run_forever(max_cycles=max_cycles)
+
+def cmd_worker(pipeline: Pipeline, args) -> int:
+    return _run_worker(pipeline, args, WorkerService.MODE_ALL)
+
+
+def cmd_worker_ingest(pipeline: Pipeline, args) -> int:
+    return _run_worker(pipeline, args, WorkerService.MODE_INGEST)
+
+
+def cmd_worker_listing(pipeline: Pipeline, args) -> int:
+    return _run_worker(pipeline, args, WorkerService.MODE_LISTING)
+
+
+def _add_common_worker_args(worker_parser):
+    worker_parser.add_argument("--interval", type=int, default=300, help="Seconds between cycles")
+    worker_parser.add_argument("--limit", type=int, default=10, help="Per-stage purchase limit")
+    worker_parser.add_argument("--top-n", type=int, default=10, help="Listings per purchase for Stage 4")
+    worker_parser.add_argument("--details", action="store_true", help="Collect building details in Stage 4")
+    worker_parser.add_argument(
+        "--max-cycles",
+        type=int,
+        default=0,
+        help="Stop after N cycles (0 = run forever)",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -87,7 +115,10 @@ Examples:
   python src/main.py stage2 --limit 5
   python src/main.py stage3 --limit 5
   python src/main.py stage4 --top-n 5 --limit 2 --details
+  python src/main.py server --host 127.0.0.1 --port 8000 --reload
   python src/main.py worker --interval 300 --limit 10 --top-n 10
+  python src/main.py worker-ingest --interval 300 --limit 10
+  python src/main.py worker-listing --interval 300 --limit 10 --top-n 10
         """,
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable DEBUG logging")
@@ -113,18 +144,22 @@ Examples:
     server_parser = subparsers.add_parser("server", help="Run web UI")
     server_parser.add_argument("--host", type=str, default="127.0.0.1", help="Host")
     server_parser.add_argument("--port", type=int, default=8000, help="Port")
+    server_parser.add_argument("--reload", action="store_true", help="Enable auto-reload (dev mode)")
 
     worker_parser = subparsers.add_parser("worker", help="Run background Stage 1-4 worker")
-    worker_parser.add_argument("--interval", type=int, default=300, help="Seconds between cycles")
-    worker_parser.add_argument("--limit", type=int, default=10, help="Per-stage purchase limit")
-    worker_parser.add_argument("--top-n", type=int, default=10, help="Listings per purchase for Stage 4")
-    worker_parser.add_argument("--details", action="store_true", help="Collect building details in Stage 4")
-    worker_parser.add_argument(
-        "--max-cycles",
-        type=int,
-        default=0,
-        help="Stop after N cycles (0 = run forever)",
+    _add_common_worker_args(worker_parser)
+
+    worker_ingest_parser = subparsers.add_parser(
+        "worker-ingest",
+        help="Run background Stage 1-2 worker",
     )
+    _add_common_worker_args(worker_ingest_parser)
+
+    worker_listing_parser = subparsers.add_parser(
+        "worker-listing",
+        help="Run background Stage 3-4 worker",
+    )
+    _add_common_worker_args(worker_listing_parser)
 
     return parser
 
@@ -140,7 +175,7 @@ def main() -> int:
     level = logging.DEBUG if args.verbose else logging.INFO
 
     # Worker has a dedicated rotating log file.
-    if args.command == "worker":
+    if args.command in {"worker", "worker-ingest", "worker-listing"}:
         worker_log = Path("results") / "logs" / "worker.log"
         setup_logger(
             level=level,
@@ -155,6 +190,8 @@ def main() -> int:
 
     logger = get_logger("main")
     logger.debug("CLI args: %s", args)
+    fail_fast = (os.getenv("ADMIN_SECURITY_FAIL_FAST", "false").strip().lower() == "true")
+    settings.validate_admin_security(fail_fast=fail_fast)
 
     print("=" * 50)
     print("EIS Parser v2.0")
@@ -173,6 +210,8 @@ def main() -> int:
         "stage4": cmd_stage4,
         "server": cmd_server,
         "worker": cmd_worker,
+        "worker-ingest": cmd_worker_ingest,
+        "worker-listing": cmd_worker_listing,
     }
 
     cmd = commands.get(args.command)

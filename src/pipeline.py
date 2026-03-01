@@ -54,6 +54,16 @@ class Pipeline:
         """РРЅРёС†РёР°Р»РёР·РёСЂСѓРµС‚ Р±Р°Р·Сѓ РґР°РЅРЅС‹С…."""
         return self.db.init_database()
 
+    def _log_stage_progress(self, stage: int, reg_number: str, result: str, reason: str = ""):
+        """Unified progress log format for per-item diagnostics."""
+        self.logger.info(
+            "stage_progress reg_number=%s stage=%s result=%s reason=%s",
+            reg_number,
+            stage,
+            result,
+            reason or "-",
+        )
+
     def _stage2_eligibility_reason(
         self,
         zakupka: Zakupka,
@@ -239,13 +249,17 @@ class Pipeline:
             top_n=top_n,
             get_details=get_details
         )
-        
+
+        if result.error:
+            self.db.zakupki.update_status(reg_number, "stage4_error")
+            self._log_stage_progress(4, reg_number, "error", result.error)
+            return result
+
         if result.items:
             self.scraper.save_listings(reg_number, result.items, url)
-            
-            # РћР±РЅРѕРІР»СЏРµРј СЃС‚Р°С‚СѓСЃ РЅР° 'listings_fresh' (Р­С‚Р°Рї 2)
-            self.db.zakupki.update_status(reg_number, 'listings_fresh')
-        
+
+        self.db.zakupki.update_status(reg_number, "stage4_done")
+        self._log_stage_progress(4, reg_number, "ok", f"listings={result.actual_n}")
         return result
     
     def get_statistics(self) -> dict:
@@ -601,14 +615,17 @@ class Pipeline:
                     if reason == "no_combined_text":
                         self.logger.info(f"[SKIP] {reg_number}: отсутствует combined_text")
                         skipped_no_text += 1
+                        self._log_stage_progress(2, reg_number, "skip", "no_combined_text")
                     elif reason == "already_has_ai_result":
                         self.logger.info(f"[SKIP] {reg_number}: AI-результат уже существует")
                         skipped_already_processed += 1
+                        self._log_stage_progress(2, reg_number, "skip", "already_has_ai_result")
                     else:
                         self.logger.info(
                             f"[SKIP] {reg_number}: статус '{zakupka.status}' не подходит для Stage 2"
                         )
                         skipped_not_pending += 1
+                        self._log_stage_progress(2, reg_number, "skip", reason or "status_not_pending")
                     continue
 
                 try:
@@ -622,6 +639,7 @@ class Pipeline:
                         failed_reg_numbers.append(reg_number)
                         self.logger.error(f"[ERROR] {err}")
                         self.db.zakupki.update_status(reg_number, 'ai_error')
+                        self._log_stage_progress(2, reg_number, "error", "empty_ai_result")
                         continue
 
                     if not self.ai.save_result(ai_result):
@@ -630,6 +648,7 @@ class Pipeline:
                         failed_reg_numbers.append(reg_number)
                         self.logger.error(f"[ERROR] {err}")
                         self.db.zakupki.update_status(reg_number, 'ai_error')
+                        self._log_stage_progress(2, reg_number, "error", "save_failed")
                         continue
 
                     processed += 1
@@ -639,12 +658,14 @@ class Pipeline:
 
                     self.db.zakupki.update_status(reg_number, 'ai_ready')
                     self.logger.info(f"[OK] AI-результат сохранён: {reg_number}")
+                    self._log_stage_progress(2, reg_number, "ok", "ai_ready")
 
                 except Exception as e:
                     errors.append(f"{reg_number}: {e}")
                     failed_reg_numbers.append(reg_number)
                     self.logger.error(f"[ERROR] Ошибка Stage 2 для {reg_number}: {e}")
                     self.db.zakupki.update_status(reg_number, 'ai_error')
+                    self._log_stage_progress(2, reg_number, "error", str(e))
 
                 if delay_s and i < len(zakupki):
                     time.sleep(delay_s)

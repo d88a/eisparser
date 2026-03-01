@@ -35,3 +35,9 @@ verify_output*.txt
 consolidated_code.txt
 debug_db.py
 verify_server.py
+
+# Server sync/deploy artifacts
+*.sql.gz
+*.tar.gz
+*.zip
+src/api/routes.py.bak_*

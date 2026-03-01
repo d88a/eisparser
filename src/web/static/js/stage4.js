@@ -2,8 +2,10 @@
 
 const STAGE4_STATUS_LABELS = {
     url_ready: "Готово к сбору объявлений",
-    listings_fresh: "Объявления уже собраны",
-    listings_stale: "Нужно обновить объявления",
+    stage4_done: "Объявления собраны",
+    stage4_error: "Ошибка Stage 4 (повторить)",
+    listings_fresh: "Объявления собраны (legacy)",
+    listings_stale: "Нужно обновить объявления (legacy)",
 };
 
 let stage4Offset = 0;

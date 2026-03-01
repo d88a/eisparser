@@ -2,65 +2,54 @@
 
 ## Режим запуска
 ```bash
-python src/main.py worker --interval 300 --limit 10 --top-n 10
+PYTHONPATH=/opt/eisparser/src /opt/eisparser/.venv/bin/python /opt/eisparser/src/main.py worker --interval 300 --limit 10 --top-n 10
+PYTHONPATH=/opt/eisparser/src /opt/eisparser/.venv/bin/python /opt/eisparser/src/main.py worker-ingest --interval 300 --limit 10
+PYTHONPATH=/opt/eisparser/src /opt/eisparser/.venv/bin/python /opt/eisparser/src/main.py worker-listing --interval 300 --limit 10 --top-n 10
 ```
-
-Параметры:
-- `--interval` - интервал между циклами в секундах (default `300`).
-- `--limit` - лимит закупок на цикл для Stage 1/3/4.
-- `--top-n` - количество объявлений на закупку в Stage 4.
-- `--details` - (опционально) сбор расширенных характеристик.
 
 ## Ключевые переменные env
-- `WORKER_ENABLE_STAGE4` (`false` на хостинге, если Stage 4 запускается не там).
-- `STAGE1_MAX_PAGES` (default `10`).
-- `AI_STAGE2_DELAY_S` (пауза между запросами в Stage 2).
-- `CEREBRAS_MODEL` (модель Stage 2).
+- `WORKER_ENABLE_STAGE4`
+- `STAGE1_MAX_PAGES`
+- `AI_STAGE2_DELAY_S`
+- `CEREBRAS_MODEL`
+- `DATABASE_URL`
 
-## Логи воркера
-- файл: `results/logs/worker.log`;
-- для cron: `/home/c77461/priv-mag.ru/app/src/results/logs/cron_worker.log`;
-- есть явный маркер cron-итерации:
-  - `Cron iteration start: ts=... pid=... cycle=...`.
-
-## Защита от двойного запуска
-Воркер использует PostgreSQL advisory lock (`704127301905221`).
-Если lock занят, второй процесс завершается с кодом `75`.
-
-## Что важно по поведению
-- `worker --max-cycles 1` должен завершаться после одного цикла - это норма для cron.
-- Stage 2 запускается при наличии pending (`raw`, `ai_error`).
-- Сообщение `Worker stopped` в cron-режиме не означает поломку.
-
-## Диагностика cron
-```bash
-crontab -l
-tail -n 200 /home/c77461/priv-mag.ru/app/src/results/logs/cron_worker.log
-```
-
-## Cron (NetAngels) - рабочая команда
-```bash
-*/5 * * * * cd /home/c77461/priv-mag.ru/app && mkdir -p /home/c77461/priv-mag.ru/app/src/results/logs && set -a && . /home/c77461/priv-mag.ru/app/src/.env && set +a && AI_STAGE2_DELAY_S='4' WORKER_ENABLE_STAGE4='false' /home/c77461/priv-mag.ru/.env/bin/python src/main.py worker --interval 1 --limit 5 --top-n 10 --max-cycles 1 >> /home/c77461/priv-mag.ru/app/src/results/logs/cron_worker.log 2>&1
-```
-
-## systemd (для отдельного VDS)
-Файл unit: `deploy/systemd/eisparser-worker.service`
-
-Установка:
-```bash
-cd /opt/eisparser
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-sudo cp deploy/systemd/eisparser-worker.service /etc/systemd/system/eisparser-worker.service
-sudo systemctl daemon-reload
-sudo systemctl enable eisparser-worker
-sudo systemctl start eisparser-worker
-```
+## Systemd (текущий прод)
+Файлы юнитов в репозитории:
+- `deploy/systemd/eisparser-worker-ingest.service`
+- `deploy/systemd/eisparser-worker-listing.service`
+- `deploy/systemd/eisparser-worker.service` (legacy)
 
 Проверка:
 ```bash
-sudo systemctl status eisparser-worker
-journalctl -u eisparser-worker -f
+systemctl status eisparser-worker-ingest --no-pager
+systemctl status eisparser-worker-listing --no-pager
 ```
+
+## Логи
+```bash
+tail -n 200 /opt/eisparser/results/logs/worker.log
+tail -f /opt/eisparser/results/logs/worker.log
+```
+
+Если `journalctl` пустой, это нормально, если логирование настроено в файл.
+
+## Диагностика очередей
+```bash
+cd /opt/eisparser
+. .venv/bin/activate
+export PYTHONPATH=/opt/eisparser/src
+python - <<'PY'
+from services.database_service import DatabaseService
+db = DatabaseService()
+print(db.zakupki.get_status_counts())
+PY
+```
+
+## Retry-логика
+- Stage 2 повторно берет `ai_error`.
+- Stage 4 повторно берет `stage4_error`.
+
+## Рекомендуемые параметры на текущем тарифе
+- `worker-ingest`: `--limit 5..10`, `AI_STAGE2_DELAY_S=4..6`
+- `worker-listing`: `--limit 5..10`, `--top-n 10`

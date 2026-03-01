@@ -11,6 +11,12 @@
 - Каноническая ссылка процесса хранится в `zakupki.two_gis_url`.
 - Stage 4 работает только по `two_gis_url`.
 - Stage 2 pending: статусы `raw` и `ai_error`.
+- Канонические backend-статусы и наборы очередей вынесены в `src/models/statuses.py`.
+
+## Lifecycle статусов закупки
+`raw -> ai_ready | ai_error -> url_ready -> stage4_done | stage4_error`
+
+Допустимые переходы фиксируются в `PIPELINE_LIFECYCLE_TRANSITIONS` (`src/models/statuses.py`).
 
 ## Структура проекта
 ```text
@@ -24,55 +30,56 @@ eisparser/
 │   ├── web/
 │   ├── pipeline.py
 │   └── main.py
+├── deploy/
 ├── docs/
 ├── results/
-├── scripts/
-└── zakupki/
+└── tests/
 ```
 
 ## Конфигурация (`src/.env`)
 Ключевые переменные:
 - `DATABASE_URL` / `DATABASE_PATH`
 - `ADMIN_PASSWORD`
+- `ADMIN_TOKEN_SECRET`
+- `ADMIN_TOKEN_TTL_SECONDS`
+- `USER_ACCESS_MODE` (`PUBLIC` или `AUTH_REQUIRED`)
+- `SERVER_RELOAD`
 - `CEREBRAS_API_KEY`, `CEREBRAS_BASE_URL`, `CEREBRAS_MODEL`
 - `AI_STAGE2_DELAY_S`
-- `STAGE1_MAX_PAGES` (default `10`)
+- `STAGE1_MAX_PAGES`
 - `WORKER_ENABLE_STAGE4`
-- `PROXY_URL` (опционально)
 
 Логика выбора БД:
 1. если задан `DATABASE_URL` - PostgreSQL;
 2. если `DATABASE_URL` пуст - SQLite (`DATABASE_PATH`).
 
-## Важные технические правила
-
-### Stage 1
-- При недоступности страницы 1 ЕИС цикл Stage 1 прерывается.
-- Поля `bid_end_date` и `initial_price` заполняются из карточки, при отсутствии - fallback из `combined_text`.
-- Ограничение сканирования по страницам: `STAGE1_MAX_PAGES`.
-
-### Stage 2
-- Выборка pending идет по `raw`/`ai_error`.
-- `decisions` не является обязательным фильтром запуска Stage 2.
-- В ответе `run_stage2` возвращаются `processed_reg_numbers` и `failed_reg_numbers`.
-
-### БД
-- `DatabaseService` обязан прокидывать `database_url` во все репозитории.
-- При старте логируется backend: PostgreSQL/SQLite.
-
 ## Запуск
 
 ### Локально
 ```powershell
+$env:PYTHONPATH="src"
 python src\main.py server --host 127.0.0.1 --port 8000
-python src\main.py worker --interval 300 --limit 10 --top-n 10
+python src\main.py worker-ingest --interval 300 --limit 10
+python src\main.py worker-listing --interval 300 --limit 10 --top-n 10
 ```
 
-### Прод (NetAngels)
-- Админка через ASGI (`APP_PATH=/home/c77461/priv-mag.ru/app/asgi.py`).
-- Воркер через cron (`--max-cycles 1` каждые 5 минут).
+### Прод (VDS)
+- API и воркеры работают через systemd.
+- Базовый путь проекта: `/opt/eisparser`.
 
 Подробные runbook:
 - `docs/DEPLOY_AND_RUN.md`
 - `docs/WORKER_VDS.md`
 - `docs/LOCAL_TUNNEL_RUN.md`
+
+## Тесты
+```powershell
+$env:PYTHONPATH="src"
+python -m pytest -q
+```
+
+## Admin Auth
+- Cookie `admin_token` хранит подписанный токен с TTL (HMAC), без хранения пароля.
+- Для прода обязательно задать:
+  - сложный `ADMIN_PASSWORD`
+  - отдельный случайный `ADMIN_TOKEN_SECRET`

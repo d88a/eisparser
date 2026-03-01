@@ -133,3 +133,49 @@ class AIResultRepository(BaseRepository[AIResult]):
                 return cursor.rowcount > 0
 
         return self.execute_with_retry(_update) or False
+
+    def get_stage3_page(self, offset: int = 0, limit: int = 20) -> tuple[list[dict], int]:
+        safe_offset = max(0, int(offset or 0))
+        safe_limit = max(1, int(limit or 20))
+
+        def _get():
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) AS c FROM ai_results")
+                count_row = cursor.fetchone()
+                total = int(count_row["c"] if hasattr(count_row, "keys") else count_row[0])
+
+                cursor.execute(
+                    """
+                    SELECT
+                        a.reg_number,
+                        a.city AS ai_city,
+                        a.area_min_m2 AS ai_area_min,
+                        a.area_max_m2 AS ai_area_max,
+                        z.description,
+                        z.update_date,
+                        z.bid_end_date,
+                        z.initial_price,
+                        z.link,
+                        z.two_gis_url,
+                        z.processed_at
+                    FROM ai_results a
+                    LEFT JOIN zakupki z ON z.reg_number = a.reg_number
+                    ORDER BY
+                        CASE WHEN z.processed_at IS NULL THEN 1 ELSE 0 END,
+                        z.processed_at DESC,
+                        z.update_date DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (safe_limit, safe_offset),
+                )
+                rows = cursor.fetchall()
+                items = []
+                for row in rows:
+                    row_dict = self.row_to_dict(row)
+                    if row_dict:
+                        items.append(row_dict)
+                return items, total
+
+        result = self.execute_with_retry(_get)
+        return result if result is not None else ([], 0)

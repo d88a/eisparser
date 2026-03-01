@@ -1,6 +1,7 @@
 ﻿"""Application settings loaded from environment variables."""
 
 import os
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -20,6 +21,10 @@ class Settings:
 
     # Admin Auth
     admin_password: str = "admin"
+    admin_token_secret: str = ""
+    admin_token_secret_explicit: bool = False
+    admin_token_ttl_seconds: int = 8 * 60 * 60
+    user_access_mode: str = "PUBLIC"
 
     # Database
     database_path: str = ""
@@ -39,6 +44,7 @@ class Settings:
 
     # Proxy
     proxy_url: Optional[str] = None
+    server_reload: bool = False
 
     # Coordinates
     coordinates_csv_path: str = ""
@@ -54,6 +60,15 @@ class Settings:
 
         # Admin
         self.admin_password = os.getenv("ADMIN_PASSWORD", self.admin_password)
+        raw_token_secret = (os.getenv("ADMIN_TOKEN_SECRET", "") or "").strip()
+        self.admin_token_secret_explicit = bool(raw_token_secret)
+        self.admin_token_secret = raw_token_secret or self.admin_password
+        self.admin_token_ttl_seconds = int(
+            os.getenv("ADMIN_TOKEN_TTL_SECONDS", str(self.admin_token_ttl_seconds))
+        )
+        self.user_access_mode = (os.getenv("USER_ACCESS_MODE", self.user_access_mode) or "PUBLIC").strip().upper()
+        if self.user_access_mode not in {"PUBLIC", "AUTH_REQUIRED"}:
+            self.user_access_mode = "PUBLIC"
 
         # Database
         db_url = (os.getenv("DATABASE_URL", "") or "").strip()
@@ -78,20 +93,32 @@ class Settings:
 
         # Proxy
         self.proxy_url = os.getenv("PROXY_URL")
+        self.server_reload = os.getenv("SERVER_RELOAD", "false").strip().lower() == "true"
 
     def _load_dotenv(self):
         """Loads src/.env if present."""
         env_path = Path(__file__).parent.parent / ".env"
         if env_path.exists():
             try:
-                with open(env_path, "r", encoding="utf-8") as f:
+                with open(env_path, "r", encoding="utf-8-sig") as f:
                     for line in f:
                         line = line.strip()
                         if line and not line.startswith("#") and "=" in line:
                             key, value = line.split("=", 1)
-                            os.environ.setdefault(key.strip(), value.strip())
+                            normalized_key = self._normalize_env_key(key)
+                            if normalized_key:
+                                os.environ.setdefault(normalized_key, value.strip())
             except Exception:
                 pass
+
+    @staticmethod
+    def _normalize_env_key(key: str) -> str:
+        """Strips BOM and invisible control chars from env keys."""
+        if not key:
+            return ""
+        cleaned = key.replace("\ufeff", "")
+        cleaned = "".join(ch for ch in cleaned if ch.isprintable())
+        return cleaned.strip()
 
     @property
     def results_dir(self) -> Path:
@@ -102,6 +129,35 @@ class Settings:
     def zakupki_dir(self) -> Path:
         """Downloaded purchases directory."""
         return self.base_dir / "zakupki"
+
+    def get_admin_security_issues(self) -> list[str]:
+        """Return insecure admin-auth configuration issues."""
+        issues: list[str] = []
+        if (self.admin_password or "").strip() == "admin":
+            issues.append("ADMIN_PASSWORD is set to insecure default value 'admin'")
+        if not self.admin_token_secret_explicit:
+            issues.append("ADMIN_TOKEN_SECRET is not set explicitly")
+        if (self.admin_token_secret or "").strip() == (self.admin_password or "").strip():
+            issues.append("ADMIN_TOKEN_SECRET must not be equal to ADMIN_PASSWORD")
+        return issues
+
+    def validate_admin_security(self, fail_fast: bool = False):
+        """
+        Log insecure admin-auth config; optionally stop startup.
+
+        fail_fast=True should be enabled in production environments.
+        """
+        logger = logging.getLogger("config.security")
+        issues = self.get_admin_security_issues()
+        if not issues:
+            logger.info("Admin auth configuration check passed")
+            return
+
+        for issue in issues:
+            logger.error("SECURITY_RISK: %s", issue)
+
+        if fail_fast:
+            raise RuntimeError("Unsafe admin auth configuration detected")
 
 
 settings = Settings()

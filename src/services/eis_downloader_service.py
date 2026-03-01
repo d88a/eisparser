@@ -7,6 +7,7 @@ import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 
 import requests
 from bs4 import BeautifulSoup
@@ -60,6 +61,28 @@ class EISDownloaderService:
         self.repo = zakupka_repo
         self.zakupki_dir = Path(zakupki_dir or settings.zakupki_dir)
         self.logger = get_logger("EISDownloaderService")
+        self.session = requests.Session()
+        self.session.headers.update(self.DEFAULT_HEADERS)
+        self._configure_proxies()
+
+    def _configure_proxies(self):
+        """Configure HTTP/HTTPS proxies for EIS requests if provided."""
+        proxy_url = (settings.proxy_url or "").strip()
+        if not proxy_url:
+            proxy_url = (
+                (os.getenv("HTTPS_PROXY", "") or os.getenv("https_proxy", "")).strip()
+                or (os.getenv("HTTP_PROXY", "") or os.getenv("http_proxy", "")).strip()
+            )
+
+        if not proxy_url:
+            self.logger.info("EIS proxy: disabled")
+            return
+
+        self.session.proxies.update({"http": proxy_url, "https": proxy_url})
+        parsed = urlsplit(proxy_url)
+        host = parsed.hostname or "unknown"
+        port = f":{parsed.port}" if parsed.port else ""
+        self.logger.info("EIS proxy: enabled (%s%s)", host, port)
 
     def search_zakupki(self, limit: int = 10, pages_to_scan: int = 20) -> List[Dict]:
         self.logger.info("Stage1 search started: limit=%s", limit)
@@ -135,7 +158,7 @@ class EISDownloaderService:
         url = f"https://zakupki.gov.ru/epz/order/notice/printForm/view.html?regNumber={reg_number}"
 
         try:
-            resp = requests.get(url, headers=self.DEFAULT_HEADERS, timeout=30)
+            resp = self.session.get(url, timeout=30)
             resp.raise_for_status()
 
             soup = BeautifulSoup(resp.text, "html.parser")
@@ -190,7 +213,7 @@ class EISDownloaderService:
 
         for attempt in range(3):
             try:
-                resp = requests.get(url, headers=self.DEFAULT_HEADERS, timeout=30)
+                resp = self.session.get(url, timeout=30)
                 resp.raise_for_status()
                 return resp.text
             except Exception as e:
@@ -377,7 +400,7 @@ class EISDownloaderService:
 
         for attempt in range(3):
             try:
-                resp = requests.get(url, headers=self.DEFAULT_HEADERS, timeout=30)
+                resp = self.session.get(url, timeout=30)
                 resp.raise_for_status()
                 break
             except Exception as e:
@@ -420,7 +443,7 @@ class EISDownloaderService:
 
         for attempt in range(3):
             try:
-                resp = requests.get(url, headers=self.DEFAULT_HEADERS, timeout=60)
+                resp = self.session.get(url, timeout=60)
                 resp.raise_for_status()
                 break
             except Exception as e:

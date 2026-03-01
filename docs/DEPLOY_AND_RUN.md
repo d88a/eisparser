@@ -1,103 +1,107 @@
-﻿# Перенос и запуск проекта (NetAngels + локально)
+﻿# Перенос и запуск проекта на VDS
 
-## 1) Безопасный деплой на NetAngels
+## Прод-окружение
+- Сервер: `213.189.219.55`
+- Каталог проекта: `/opt/eisparser`
+- Пользователь приложения: `eisparser`
+- Systemd сервисы:
+  - `eisparser-api`
+  - `eisparser-worker-ingest`
+  - `eisparser-worker-listing`
 
-Критично:
-- не перезаписывать `/home/c77461/priv-mag.ru/app/asgi.py`;
-- не перезаписывать `/home/c77461/priv-mag.ru/app/src/.env`.
+## 1) Деплой кода на сервер
 
-### Локально перед деплоем
+### Вариант A: копирование архива
+На ПК:
 ```powershell
 cd D:\Anna\eisparser
-git status
+tar -czf deploy_vds.tar.gz src deploy requirements.txt pytest.ini
+scp deploy_vds.tar.gz root@213.189.219.55:/opt/eisparser/
 ```
 
-### Копировать только измененный код
+На сервере:
+```bash
+cd /opt/eisparser
+tar -xzf deploy_vds.tar.gz
+chown -R eisparser:eisparser /opt/eisparser
+```
+
+### Вариант B: точечное копирование файлов
 ```powershell
-scp src\pipeline.py c77461@priv-mag.ru:/home/c77461/priv-mag.ru/app/src/pipeline.py
-scp src\api\routes.py c77461@priv-mag.ru:/home/c77461/priv-mag.ru/app/src/api/routes.py
-scp src\services\database_service.py c77461@priv-mag.ru:/home/c77461/priv-mag.ru/app/src/services/database_service.py
-scp src\services\worker_service.py c77461@priv-mag.ru:/home/c77461/priv-mag.ru/app/src/services/worker_service.py
-scp src\services\ai_processor_service.py c77461@priv-mag.ru:/home/c77461/priv-mag.ru/app/src/services/ai_processor_service.py
-scp src\web\static\js\stage2.js c77461@priv-mag.ru:/home/c77461/priv-mag.ru/app/src/web/static/js/stage2.js
+scp D:\Anna\eisparser\src\api\app.py root@213.189.219.55:/opt/eisparser/src/api/app.py
+scp D:\Anna\eisparser\src\repositories\zakupka_repo.py root@213.189.219.55:/opt/eisparser/src/repositories/zakupka_repo.py
+scp -r D:\Anna\eisparser\src\api\routes root@213.189.219.55:/opt/eisparser/src/api/
 ```
 
-### На сервере
+## 2) Проверка окружения
 ```bash
-cd /home/c77461/priv-mag.ru/app
-/home/c77461/priv-mag.ru/.env/bin/pip install -r requirements.txt
+cd /opt/eisparser
+. .venv/bin/activate
+export PYTHONPATH=/opt/eisparser/src
+python -m compileall -q /opt/eisparser/src
 ```
 
-### В панели NetAngels
-- `Python ASGI` -> `Перезапустить Python ASGI`.
-- Проверить: `APP_PATH=/home/c77461/priv-mag.ru/app/asgi.py`.
-
-## 2) Smoke-check после деплоя
-
-Важно: внутренний API проверять с `Host`, иначе возможен ложный `404`.
-
+## 3) Проверка подключения БД
 ```bash
-curl -i --max-time 10 -H "Host: priv-mag.ru" "http://$APP_IP:$APP_PORT/api/admin/zakupki_all?offset=0&limit=1"
-```
-
-Ожидается:
-- `401` без админ-куки (это нормально), либо
-- `200` с валидной сессией.
-
-Не должно быть `404`.
-
-Проверка backend БД:
-```bash
-PYTHONPATH=/home/c77461/priv-mag.ru/app/src /home/c77461/priv-mag.ru/.env/bin/python - <<'PY'
+cd /opt/eisparser
+. .venv/bin/activate
+export PYTHONPATH=/opt/eisparser/src
+python - <<'PY'
+from config.settings import settings
 from services.database_service import DatabaseService
 db = DatabaseService()
-print("repo_is_postgres =", db.zakupki.is_postgres)
-print("zakupki_count =", len(db.zakupki.get_all()))
+print("DATABASE_URL =", repr(settings.database_url))
+print("DATABASE_PATH =", settings.database_path)
+print("BACKEND =", "PostgreSQL" if db.database_url else "SQLite")
 PY
+
+sudo -u postgres psql -d eisparser_db -c "select count(*) as zakupki from zakupki;"
+sudo -u postgres psql -d eisparser_db -c "select count(*) as ai_results from ai_results;"
 ```
 
-Ожидается `repo_is_postgres = True`.
-
-### Индексы для ускорения Stage 2 (выполнить один раз в Adminer)
-```sql
-CREATE INDEX IF NOT EXISTS idx_zakupki_status ON zakupki(status);
-CREATE INDEX IF NOT EXISTS idx_ai_results_reg_number ON ai_results(reg_number);
-CREATE INDEX IF NOT EXISTS idx_zakupki_processed_at ON zakupki(processed_at);
-```
-
-## 3) Фон на хостинге (cron)
-
-Разовый запуск:
+## 4) Перезапуск сервисов
 ```bash
-cd /home/c77461/priv-mag.ru/app
-/home/c77461/priv-mag.ru/.env/bin/python src/main.py worker --max-cycles 1
+systemctl daemon-reload
+systemctl restart eisparser-api
+systemctl restart eisparser-worker-ingest
+systemctl restart eisparser-worker-listing
+
+systemctl status eisparser-api --no-pager
+systemctl status eisparser-worker-ingest --no-pager
+systemctl status eisparser-worker-listing --no-pager
 ```
 
-Cron (каждые 5 минут):
-```cron
-*/5 * * * * cd /home/c77461/priv-mag.ru/app && /home/c77461/priv-mag.ru/.env/bin/python src/main.py worker --max-cycles 1 >> /home/c77461/priv-mag.ru/app/src/results/logs/cron_worker.log 2>&1
-```
-
-Логи:
+## 5) Smoke-check API
 ```bash
-tail -f /home/c77461/priv-mag.ru/app/src/results/logs/cron_worker.log
+curl -i --max-time 10 http://127.0.0.1:8000/
+curl -i --max-time 10 http://127.0.0.1:8000/api/admin/zakupki_all?offset=0\&limit=1
 ```
 
-Проверка, что cron реально запускает итерации:
+## 6) Логи
 ```bash
-crontab -l
-tail -n 200 /home/c77461/priv-mag.ru/app/src/results/logs/cron_worker.log
+tail -n 120 /opt/eisparser/results/logs/api.log
+tail -n 200 /opt/eisparser/results/logs/worker.log
 ```
-Ожидаемо в логе:
-- `Cron iteration start: ...`
-- `Worker stopped` после `--max-cycles 1` (норма для cron-режима).
 
-## 4) Локальный запуск с туннелем
+## 7) Обязательные security-настройки
+В `/opt/eisparser/src/.env`:
+```env
+ADMIN_PASSWORD=<сложный_пароль>
+ADMIN_TOKEN_SECRET=<длинный_случайный_секрет>
+# для strict-режима:
+# ADMIN_SECURITY_FAIL_FAST=true
+```
 
-См. отдельный документ: `docs/LOCAL_TUNNEL_RUN.md`.
+## 8) Типовой сбой после частичного деплоя
+Симптом: `500` на `/api/admin/zakupki_all` и ошибка
+`AttributeError: 'ZakupkaRepository' object has no attribute 'get_admin_all_page'`.
 
-## 5) Если что-то сломалось
-1. Проверить `APP_PATH` в панели.
-2. Проверить, что `src/.env` на сервере существует и содержит `DATABASE_URL`.
-3. Повторить внутренний curl с `Host`.
-4. Откатить только измененные `.py`/`.js` файлы из backup.
+Причина: на сервер попал новый `admin.py`, но старый `zakupka_repo.py`.
+
+Исправление:
+```powershell
+scp D:\Anna\eisparser\src\repositories\zakupka_repo.py root@213.189.219.55:/opt/eisparser/src/repositories/zakupka_repo.py
+```
+```bash
+systemctl restart eisparser-api
+```
