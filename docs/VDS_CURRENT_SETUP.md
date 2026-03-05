@@ -28,6 +28,12 @@
   - `DATABASE_URL=postgresql://eisparser_user:...@127.0.0.1:5432/eisparser_db`
   - `AI_STAGE2_DELAY_S=5`
   - `WORKER_ENABLE_STAGE4=true`
+  - `USER_ACCESS_MODE=PUBLIC` (или `AUTH_REQUIRED`)
+  - `ADMIN_SECURITY_FAIL_FAST=true`
+  - `ADMIN_TOKEN_SECRET=<отдельный секрет, не равен ADMIN_PASSWORD>`
+  - `EIS_RETRY_COUNT=3`
+  - `EIS_RETRY_BACKOFF_S=2.0`
+  - `EIS_REQUEST_TIMEOUT_S=30`
   - `CEREBRAS_BASE_URL=https://openrouter.ai/api/v1`
   - `CEREBRAS_MODEL=openai/gpt-oss-20b:free`
 

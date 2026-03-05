@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from config.settings import settings
+from models.statuses import STAGE4_QUEUE_STATUSES, ZakupkaStatus
 from utils.logger import get_logger
 
 try:
@@ -156,18 +157,8 @@ class WorkerService:
             return None
 
     def _reg_numbers_by_statuses(self, statuses: list[str], limit: int) -> list[str]:
-        items = self.pipeline.db.zakupki.get_by_statuses(statuses)
-        items = sorted(
-            items,
-            key=lambda z: (
-                str(z.processed_at) if z.processed_at else (
-                    str(z.prepared_at) if z.prepared_at else (z.update_date or "")
-                )
-            ),
-            reverse=True,
-        )
-        reg_numbers = [z.reg_number for z in items]
-        return reg_numbers[:limit]
+        items = self.pipeline.db.zakupki.get_by_statuses_limited_ordered(statuses, limit)
+        return [z.reg_number for z in items]
 
     def _reg_numbers_by_status(self, status: str, limit: int) -> list[str]:
         return self._reg_numbers_by_statuses([status], limit)
@@ -183,7 +174,13 @@ class WorkerService:
             try:
                 zakupka = self.pipeline.eis.get_zakupka(reg_number)
                 if not zakupka or not zakupka.two_gis_url:
-                    errors.append(f"{reg_number}: no two_gis_url")
+                    reason = "no_two_gis_url"
+                    errors.append(f"{reg_number}: {reason}")
+                    self.logger.info(
+                        "stage_progress reg_number=%s stage=4 result=skip reason=%s",
+                        reg_number,
+                        reason,
+                    )
                     continue
 
                 result = self.pipeline.run_stage4_for_zakupka(
@@ -211,9 +208,9 @@ class WorkerService:
                 self.logger.exception("Stage 4 failed for %s", reg_number)
                 errors.append(f"{reg_number}: {exc}")
                 try:
-                    self.pipeline.db.zakupki.update_status(reg_number, "stage4_error")
+                    self.pipeline.db.zakupki.update_status(reg_number, ZakupkaStatus.STAGE4_ERROR)
                 except Exception:
-                    self.logger.exception("Failed to mark stage4_error for %s", reg_number)
+                    self.logger.exception("Failed to mark %s for %s", ZakupkaStatus.STAGE4_ERROR, reg_number)
                 self.logger.info(
                     "stage_progress reg_number=%s stage=4 result=error reason=%s",
                     reg_number,
@@ -233,13 +230,16 @@ class WorkerService:
         cycle_started = time.time()
         self.logger.info("Cycle %s started", cycle_number)
 
-        before_all = {z.reg_number for z in self.pipeline.db.zakupki.get_all()}
-
-        self._run_stage("Stage 1", lambda: self.pipeline.run_stage1(limit=self.limit))
-
-        after_all = {z.reg_number for z in self.pipeline.db.zakupki.get_all()}
-        new_reg_numbers = sorted(after_all - before_all)
-        self.logger.info("Cycle %s new purchases from Stage 1: %s", cycle_number, len(new_reg_numbers))
+        stage1_result = self._run_stage("Stage 1", lambda: self.pipeline.run_stage1(limit=self.limit))
+        if stage1_result is not None and not bool(getattr(stage1_result, "success", True)):
+            self.logger.warning(
+                "Stage 1 degraded in cycle %s: reason=%s",
+                cycle_number,
+                getattr(stage1_result, "message", "unknown"),
+            )
+        stage1_saved = (getattr(stage1_result, "data", {}) or {}).get("saved_new")
+        if stage1_saved is not None:
+            self.logger.info("Cycle %s new purchases from Stage 1: %s", cycle_number, stage1_saved)
 
         stage2_probe, stage2_total = self.pipeline.get_stage2_pending_page(offset=0, limit=1)
         if stage2_probe:
@@ -251,23 +251,23 @@ class WorkerService:
         else:
             self.logger.info("Stage 2 skipped: no purchases pending Stage 2")
 
-        stage3_reg_numbers = self._reg_numbers_by_status("ai_ready", self.limit)
+        stage3_reg_numbers = self._reg_numbers_by_status(ZakupkaStatus.AI_READY, self.limit)
         if stage3_reg_numbers:
             self._run_stage(
                 "Stage 3",
                 lambda: self.pipeline.run_stage3(reg_numbers=stage3_reg_numbers, overwrite=False),
             )
         else:
-            self.logger.info("Stage 3 skipped: no purchases with status ai_ready")
+            self.logger.info("Stage 3 skipped: no purchases with status %s", ZakupkaStatus.AI_READY)
 
         if not self.enable_stage4:
             self.logger.info("Stage 4 disabled by config (WORKER_ENABLE_STAGE4=false)")
         else:
-            stage4_reg_numbers = self._reg_numbers_by_statuses(["url_ready", "stage4_error"], self.limit)
+            stage4_reg_numbers = self._reg_numbers_by_statuses(list(STAGE4_QUEUE_STATUSES), self.limit)
             if stage4_reg_numbers:
                 self._run_stage4_batch(stage4_reg_numbers)
             else:
-                self.logger.info("Stage 4 skipped: no purchases with status url_ready/stage4_error")
+                self.logger.info("Stage 4 skipped: no purchases with statuses %s", ",".join(STAGE4_QUEUE_STATUSES))
 
         duration = round(time.time() - cycle_started, 2)
         self.logger.info("Cycle %s finished in %s sec", cycle_number, duration)
@@ -276,11 +276,16 @@ class WorkerService:
         cycle_started = time.time()
         self.logger.info("Cycle %s started", cycle_number)
 
-        before_all = {z.reg_number for z in self.pipeline.db.zakupki.get_all()}
-        self._run_stage("Stage 1", lambda: self.pipeline.run_stage1(limit=self.limit))
-        after_all = {z.reg_number for z in self.pipeline.db.zakupki.get_all()}
-        new_reg_numbers = sorted(after_all - before_all)
-        self.logger.info("Cycle %s new purchases from Stage 1: %s", cycle_number, len(new_reg_numbers))
+        stage1_result = self._run_stage("Stage 1", lambda: self.pipeline.run_stage1(limit=self.limit))
+        if stage1_result is not None and not bool(getattr(stage1_result, "success", True)):
+            self.logger.warning(
+                "Stage 1 degraded in cycle %s: reason=%s",
+                cycle_number,
+                getattr(stage1_result, "message", "unknown"),
+            )
+        stage1_saved = (getattr(stage1_result, "data", {}) or {}).get("saved_new")
+        if stage1_saved is not None:
+            self.logger.info("Cycle %s new purchases from Stage 1: %s", cycle_number, stage1_saved)
 
         stage2_probe, stage2_total = self.pipeline.get_stage2_pending_page(offset=0, limit=1)
         if stage2_probe:
@@ -299,23 +304,23 @@ class WorkerService:
         cycle_started = time.time()
         self.logger.info("Cycle %s started", cycle_number)
 
-        stage3_reg_numbers = self._reg_numbers_by_status("ai_ready", self.limit)
+        stage3_reg_numbers = self._reg_numbers_by_status(ZakupkaStatus.AI_READY, self.limit)
         if stage3_reg_numbers:
             self._run_stage(
                 "Stage 3",
                 lambda: self.pipeline.run_stage3(reg_numbers=stage3_reg_numbers, overwrite=False),
             )
         else:
-            self.logger.info("Stage 3 skipped: no purchases with status ai_ready")
+            self.logger.info("Stage 3 skipped: no purchases with status %s", ZakupkaStatus.AI_READY)
 
         if not self.enable_stage4:
             self.logger.info("Stage 4 disabled by config (WORKER_ENABLE_STAGE4=false)")
         else:
-            stage4_reg_numbers = self._reg_numbers_by_statuses(["url_ready", "stage4_error"], self.limit)
+            stage4_reg_numbers = self._reg_numbers_by_statuses(list(STAGE4_QUEUE_STATUSES), self.limit)
             if stage4_reg_numbers:
                 self._run_stage4_batch(stage4_reg_numbers)
             else:
-                self.logger.info("Stage 4 skipped: no purchases with status url_ready/stage4_error")
+                self.logger.info("Stage 4 skipped: no purchases with statuses %s", ",".join(STAGE4_QUEUE_STATUSES))
 
         duration = round(time.time() - cycle_started, 2)
         self.logger.info("Cycle %s finished in %s sec", cycle_number, duration)

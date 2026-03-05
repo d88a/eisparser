@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 import requests
 from bs4 import BeautifulSoup
+from requests import RequestException, Timeout
 
 from config.settings import settings
 from models.zakupka import Zakupka
@@ -63,7 +64,49 @@ class EISDownloaderService:
         self.logger = get_logger("EISDownloaderService")
         self.session = requests.Session()
         self.session.headers.update(self.DEFAULT_HEADERS)
+        self.retry_count = max(1, int(settings.eis_retry_count))
+        self.retry_backoff_s = max(0.0, float(settings.eis_retry_backoff_s))
+        self.request_timeout_s = max(1, int(settings.eis_request_timeout_s))
         self._configure_proxies()
+
+    def _classify_request_error(self, exc: Exception) -> str:
+        if isinstance(exc, Timeout):
+            return "timeout"
+        if isinstance(exc, requests.HTTPError):
+            status_code = int(exc.response.status_code) if exc.response is not None else 0
+            if 400 <= status_code < 500:
+                return "http_4xx"
+            if 500 <= status_code < 600:
+                return "http_5xx"
+        if isinstance(exc, RequestException):
+            return "network_error"
+        return "network_error"
+
+    def _request_get_with_retry(self, url: str, context: str, timeout_s: Optional[int] = None) -> Optional[requests.Response]:
+        timeout = int(timeout_s or self.request_timeout_s)
+        for attempt in range(1, self.retry_count + 1):
+            try:
+                response = self.session.get(url, timeout=timeout)
+                response.raise_for_status()
+                return response
+            except Exception as exc:
+                reason = self._classify_request_error(exc)
+                is_last_attempt = attempt >= self.retry_count
+                level_fn = self.logger.error if is_last_attempt else self.logger.warning
+                level_fn(
+                    "%s failed attempt=%s/%s reason=%s error=%s",
+                    context,
+                    attempt,
+                    self.retry_count,
+                    reason,
+                    exc,
+                )
+                if is_last_attempt:
+                    return None
+                sleep_seconds = self.retry_backoff_s * attempt
+                if sleep_seconds > 0:
+                    time.sleep(sleep_seconds)
+        return None
 
     def _configure_proxies(self):
         """Configure HTTP/HTTPS proxies for EIS requests if provided."""
@@ -157,10 +200,11 @@ class EISDownloaderService:
     def _get_print_form(self, reg_number: str) -> Optional[str]:
         url = f"https://zakupki.gov.ru/epz/order/notice/printForm/view.html?regNumber={reg_number}"
 
-        try:
-            resp = self.session.get(url, timeout=30)
-            resp.raise_for_status()
+        resp = self._request_get_with_retry(url, context=f"print_form reg_number={reg_number}")
+        if not resp:
+            return None
 
+        try:
             soup = BeautifulSoup(resp.text, "html.parser")
             for script in soup(["script", "style"]):
                 script.decompose()
@@ -210,17 +254,8 @@ class EISDownloaderService:
 
     def _fetch_search_page(self, page: int) -> Optional[str]:
         url = self.BASE_SEARCH_URL.format(page=page)
-
-        for attempt in range(3):
-            try:
-                resp = self.session.get(url, timeout=30)
-                resp.raise_for_status()
-                return resp.text
-            except Exception as e:
-                self.logger.warning("Search page fetch attempt %s/3 failed: %s", attempt + 1, e)
-                time.sleep(5)
-
-        return None
+        resp = self._request_get_with_retry(url, context=f"search_page page={page}")
+        return resp.text if resp else None
 
     def _parse_purchases_from_html(self, html: str) -> List[Dict]:
         soup = BeautifulSoup(html, "html.parser")
@@ -397,16 +432,8 @@ class EISDownloaderService:
 
     def _get_documents_list(self, reg_number: str) -> List[Dict]:
         url = f"https://zakupki.gov.ru/epz/order/notice/zk20/view/documents.html?regNumber={reg_number}"
-
-        for attempt in range(3):
-            try:
-                resp = self.session.get(url, timeout=30)
-                resp.raise_for_status()
-                break
-            except Exception as e:
-                self.logger.warning("Documents list attempt %s/3 failed: %s", attempt + 1, e)
-                time.sleep(5)
-        else:
+        resp = self._request_get_with_retry(url, context=f"documents_list reg_number={reg_number}")
+        if not resp:
             return []
 
         soup = BeautifulSoup(resp.text, "html.parser")
@@ -441,15 +468,12 @@ class EISDownloaderService:
         if not url:
             return None
 
-        for attempt in range(3):
-            try:
-                resp = self.session.get(url, timeout=60)
-                resp.raise_for_status()
-                break
-            except Exception as e:
-                self.logger.warning("Document download attempt %s/3 failed: %s", attempt + 1, e)
-                time.sleep(5)
-        else:
+        resp = self._request_get_with_retry(
+            url,
+            context=f"document_download name={name}",
+            timeout_s=max(self.request_timeout_s, 60),
+        )
+        if not resp:
             return None
 
         ext = self._detect_extension(resp.content, resp.headers)

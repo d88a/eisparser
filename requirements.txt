@@ -12,3 +12,5 @@ xlrd
 playwright
 playwright-stealth
 psycopg2-binary
+pytest
+httpx

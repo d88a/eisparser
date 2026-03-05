@@ -13,6 +13,7 @@ from services.ai_processor_service import AIProcessorService
 from models.zakupka import Zakupka
 from models.ai_result import AIResult
 from models.listing import ListingResult
+from models.statuses import STAGE2_PENDING_STATUSES, ZakupkaStatus
 from models.stage_result import StageResult
 from utils.logger import get_logger
 
@@ -78,7 +79,7 @@ class Pipeline:
 
         status = (zakupka.status or "").strip()
 
-        if status not in ("raw", "ai_error"):
+        if status not in STAGE2_PENDING_STATUSES:
             return False, "status_not_pending"
 
         if not (zakupka.combined_text or "").strip():
@@ -86,7 +87,7 @@ class Pipeline:
 
         # raw + existing AI is considered already processed.
         # ai_error is allowed for retry even if stale AI row exists.
-        if ai_result is not None and not overwrite and status != "ai_error":
+        if ai_result is not None and not overwrite and status != ZakupkaStatus.AI_ERROR:
             return False, "already_has_ai_result"
 
         return True, None
@@ -200,8 +201,8 @@ class Pipeline:
         if url:
             self.eis.update_two_gis_url(reg_number, url)
             
-            # РћР±РЅРѕРІР»СЏРµРј СЃС‚Р°С‚СѓСЃ РЅР° 'url_ready' (Р­С‚Р°Рї 2)
-            self.db.zakupki.update_status(reg_number, 'url_ready', prepared_by_user_id=user_id)
+            # РћР±РЅРѕРІР»СЏРµРј СЃС‚Р°С‚СѓСЃ РЅР° URL_READY (Р­С‚Р°Рї 3)
+            self.db.zakupki.update_status(reg_number, ZakupkaStatus.URL_READY, prepared_by_user_id=user_id)
             
             self.logger.info(f"[OK] Ссылка сгенерирована для {reg_number} (city={city})")
         
@@ -251,14 +252,14 @@ class Pipeline:
         )
 
         if result.error:
-            self.db.zakupki.update_status(reg_number, "stage4_error")
+            self.db.zakupki.update_status(reg_number, ZakupkaStatus.STAGE4_ERROR)
             self._log_stage_progress(4, reg_number, "error", result.error)
             return result
 
         if result.items:
             self.scraper.save_listings(reg_number, result.items, url)
 
-        self.db.zakupki.update_status(reg_number, "stage4_done")
+        self.db.zakupki.update_status(reg_number, ZakupkaStatus.STAGE4_DONE)
         self._log_stage_progress(4, reg_number, "ok", f"listings={result.actual_n}")
         return result
     
@@ -447,8 +448,8 @@ class Pipeline:
                         if self.eis.save_zakupka(zakupka):
                             saved_new += 1
                             
-                            # РћР±РЅРѕРІР»СЏРµРј СЃС‚Р°С‚СѓСЃ РЅР° 'raw' (Р­С‚Р°Рї 2)
-                            self.db.zakupki.update_status(reg_number, 'raw')
+                            # РћР±РЅРѕРІР»СЏРµРј СЃС‚Р°С‚СѓСЃ РЅР° RAW (Р­С‚Р°Рї 1 -> 2)
+                            self.db.zakupki.update_status(reg_number, ZakupkaStatus.RAW)
                             
                             self.logger.info(f"[OK] Сохранена закупка {reg_number} ({saved_new}/{limit})")
                             
@@ -569,8 +570,8 @@ class Pipeline:
 
         delay_s = getattr(settings, "ai_stage2_delay_s", 0.0)
         status_counts = self.db.zakupki.get_status_counts()
-        raw_total = int(status_counts.get('raw', 0))
-        ai_error_total = int(status_counts.get('ai_error', 0))
+        raw_total = int(status_counts.get(ZakupkaStatus.RAW, 0))
+        ai_error_total = int(status_counts.get(ZakupkaStatus.AI_ERROR, 0))
         self.logger.info("Stage 2 queue snapshot: raw=%s ai_error=%s", raw_total, ai_error_total)
 
         errors = []
@@ -638,7 +639,7 @@ class Pipeline:
                         errors.append(err)
                         failed_reg_numbers.append(reg_number)
                         self.logger.error(f"[ERROR] {err}")
-                        self.db.zakupki.update_status(reg_number, 'ai_error')
+                        self.db.zakupki.update_status(reg_number, ZakupkaStatus.AI_ERROR)
                         self._log_stage_progress(2, reg_number, "error", "empty_ai_result")
                         continue
 
@@ -647,7 +648,7 @@ class Pipeline:
                         errors.append(err)
                         failed_reg_numbers.append(reg_number)
                         self.logger.error(f"[ERROR] {err}")
-                        self.db.zakupki.update_status(reg_number, 'ai_error')
+                        self.db.zakupki.update_status(reg_number, ZakupkaStatus.AI_ERROR)
                         self._log_stage_progress(2, reg_number, "error", "save_failed")
                         continue
 
@@ -656,15 +657,15 @@ class Pipeline:
                     if ai_result.city and ai_result.city not in cities:
                         cities.append(ai_result.city)
 
-                    self.db.zakupki.update_status(reg_number, 'ai_ready')
+                    self.db.zakupki.update_status(reg_number, ZakupkaStatus.AI_READY)
                     self.logger.info(f"[OK] AI-результат сохранён: {reg_number}")
-                    self._log_stage_progress(2, reg_number, "ok", "ai_ready")
+                    self._log_stage_progress(2, reg_number, "ok", ZakupkaStatus.AI_READY)
 
                 except Exception as e:
                     errors.append(f"{reg_number}: {e}")
                     failed_reg_numbers.append(reg_number)
                     self.logger.error(f"[ERROR] Ошибка Stage 2 для {reg_number}: {e}")
-                    self.db.zakupki.update_status(reg_number, 'ai_error')
+                    self.db.zakupki.update_status(reg_number, ZakupkaStatus.AI_ERROR)
                     self._log_stage_progress(2, reg_number, "error", str(e))
 
                 if delay_s and i < len(zakupki):

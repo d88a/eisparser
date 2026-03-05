@@ -45,6 +45,9 @@ class Settings:
     # Proxy
     proxy_url: Optional[str] = None
     server_reload: bool = False
+    eis_retry_count: int = 3
+    eis_retry_backoff_s: float = 2.0
+    eis_request_timeout_s: int = 30
 
     # Coordinates
     coordinates_csv_path: str = ""
@@ -94,6 +97,9 @@ class Settings:
         # Proxy
         self.proxy_url = os.getenv("PROXY_URL")
         self.server_reload = os.getenv("SERVER_RELOAD", "false").strip().lower() == "true"
+        self.eis_retry_count = max(1, int(os.getenv("EIS_RETRY_COUNT", str(self.eis_retry_count))))
+        self.eis_retry_backoff_s = max(0.0, float(os.getenv("EIS_RETRY_BACKOFF_S", str(self.eis_retry_backoff_s))))
+        self.eis_request_timeout_s = max(1, int(os.getenv("EIS_REQUEST_TIMEOUT_S", str(self.eis_request_timeout_s))))
 
     def _load_dotenv(self):
         """Loads src/.env if present."""

@@ -77,6 +77,26 @@ curl -i --max-time 10 http://127.0.0.1:8000/
 curl -i --max-time 10 http://127.0.0.1:8000/api/admin/zakupki_all?offset=0\&limit=1
 ```
 
+### Smoke access-mode (локально)
+```bash
+cd /opt/eisparser
+. .venv/bin/activate
+export PYTHONPATH=/opt/eisparser/src
+python -m pytest -q tests/test_http_access_modes.py
+```
+
+### Smoke access-mode (VDS, ручная проверка)
+```bash
+# USER_ACCESS_MODE=PUBLIC: user endpoint доступен без cookie
+curl -i --max-time 10 http://127.0.0.1:8000/api/user/available_zakupki
+
+# admin endpoint всегда требует admin cookie
+curl -i --max-time 10 http://127.0.0.1:8000/api/admin/pipeline_status
+
+# USER_ACCESS_MODE=AUTH_REQUIRED: user endpoint без cookie должен вернуть 401
+curl -i --max-time 10 http://127.0.0.1:8000/api/user/available_zakupki
+```
+
 ## 6) Логи
 ```bash
 tail -n 120 /opt/eisparser/results/logs/api.log
@@ -88,9 +108,15 @@ tail -n 200 /opt/eisparser/results/logs/worker.log
 ```env
 ADMIN_PASSWORD=<сложный_пароль>
 ADMIN_TOKEN_SECRET=<длинный_случайный_секрет>
-# для strict-режима:
-# ADMIN_SECURITY_FAIL_FAST=true
+ADMIN_SECURITY_FAIL_FAST=true
+USER_ACCESS_MODE=PUBLIC
+# или:
+# USER_ACCESS_MODE=AUTH_REQUIRED
 ```
+
+Примечание:
+- `ADMIN_TOKEN_SECRET` не должен совпадать с `ADMIN_PASSWORD`.
+- При `ADMIN_SECURITY_FAIL_FAST=true` приложение аварийно завершится при небезопасном admin-конфиге.
 
 ## 8) Типовой сбой после частичного деплоя
 Симптом: `500` на `/api/admin/zakupki_all` и ошибка
@@ -104,4 +130,26 @@ scp D:\Anna\eisparser\src\repositories\zakupka_repo.py root@213.189.219.55:/opt/
 ```
 ```bash
 systemctl restart eisparser-api
+```
+
+## 9) Rollback (короткий порядок)
+```bash
+cd /opt/eisparser
+cp src/.env src/.env.rollback.$(date +%Y%m%d_%H%M%S)
+```
+
+```bash
+# вернуть предыдущую рабочую ревизию
+git checkout <previous-stable-commit>
+. .venv/bin/activate
+pip install -r requirements.txt
+python -m compileall -q /opt/eisparser/src
+```
+
+```bash
+systemctl restart eisparser-api
+systemctl restart eisparser-worker-ingest
+systemctl restart eisparser-worker-listing
+tail -n 120 /opt/eisparser/results/logs/api.log
+tail -n 200 /opt/eisparser/results/logs/worker.log
 ```

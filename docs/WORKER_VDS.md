@@ -11,8 +11,12 @@ PYTHONPATH=/opt/eisparser/src /opt/eisparser/.venv/bin/python /opt/eisparser/src
 - `WORKER_ENABLE_STAGE4`
 - `STAGE1_MAX_PAGES`
 - `AI_STAGE2_DELAY_S`
+- `EIS_RETRY_COUNT`
+- `EIS_RETRY_BACKOFF_S`
+- `EIS_REQUEST_TIMEOUT_S`
 - `CEREBRAS_MODEL`
 - `DATABASE_URL`
+- `USER_ACCESS_MODE`
 
 ## Systemd (текущий прод)
 Файлы юнитов в репозитории:
@@ -44,6 +48,58 @@ from services.database_service import DatabaseService
 db = DatabaseService()
 print(db.zakupki.get_status_counts())
 PY
+```
+
+## Единый формат диагностики этапов
+Строки прогресса пишутся в формате:
+`stage_progress reg_number=<id> stage=<2|4> result=<ok|error|skip> reason=<reason>`
+
+Примеры выборок:
+```bash
+# последние записи по конкретной закупке
+grep "stage_progress reg_number=32000000001" /opt/eisparser/results/logs/worker.log | tail -n 30
+
+# ошибки по Stage 2/4
+grep "stage_progress" /opt/eisparser/results/logs/worker.log | grep "result=error" | tail -n 50
+```
+
+## Быстрые команды диагностики
+```bash
+# 1) очереди по статусам
+python - <<'PY'
+from services.database_service import DatabaseService
+db = DatabaseService()
+print(db.zakupki.get_status_counts())
+PY
+
+# 2) зависшие записи (stage4_error + ai_error)
+python - <<'PY'
+from services.database_service import DatabaseService
+db = DatabaseService()
+print("stage4_error:", len(db.zakupki.get_by_status("stage4_error")))
+print("ai_error:", len(db.zakupki.get_by_status("ai_error")))
+PY
+
+# 2b) долго в одном статусе (пример: старше 6 часов)
+python - <<'PY'
+from datetime import datetime, timedelta
+from services.database_service import DatabaseService
+
+db = DatabaseService()
+threshold = datetime.now() - timedelta(hours=6)
+statuses = ["raw", "ai_ready", "url_ready", "ai_error", "stage4_error"]
+
+for status in statuses:
+    stuck = 0
+    for z in db.zakupki.get_by_status(status):
+        ts = z.processed_at or z.prepared_at
+        if ts and ts < threshold:
+            stuck += 1
+    print(f"{status}: stuck>{6}h = {stuck}")
+PY
+
+# 3) длительность этапов по логам (грубая оценка по таймстампам)
+grep "stage_progress" /opt/eisparser/results/logs/worker.log | tail -n 200
 ```
 
 ## Retry-логика

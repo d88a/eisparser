@@ -48,6 +48,7 @@ eisparser/
 - `AI_STAGE2_DELAY_S`
 - `STAGE1_MAX_PAGES`
 - `WORKER_ENABLE_STAGE4`
+- `EIS_RETRY_COUNT`, `EIS_RETRY_BACKOFF_S`, `EIS_REQUEST_TIMEOUT_S`
 
 Логика выбора БД:
 1. если задан `DATABASE_URL` - PostgreSQL;
@@ -71,6 +72,7 @@ python src\main.py worker-listing --interval 300 --limit 10 --top-n 10
 - `docs/DEPLOY_AND_RUN.md`
 - `docs/WORKER_VDS.md`
 - `docs/LOCAL_TUNNEL_RUN.md`
+- `docs/COMMERCIALIZATION_PREP.md`
 
 ## Тесты
 ```powershell
