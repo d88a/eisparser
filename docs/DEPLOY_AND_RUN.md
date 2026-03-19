@@ -77,6 +77,11 @@ curl -i --max-time 10 http://127.0.0.1:8000/
 curl -i --max-time 10 http://127.0.0.1:8000/api/admin/zakupki_all?offset=0\&limit=1
 ```
 
+Baseline доступа:
+- `USER_ACCESS_MODE=PUBLIC` — основной режим бесплатного user API.
+- `USER_ACCESS_MODE=AUTH_REQUIRED` — опциональный режим.
+- admin API в обоих режимах остается защищенным (`401` без admin cookie).
+
 ### Smoke access-mode (локально)
 ```bash
 cd /opt/eisparser
@@ -101,6 +106,11 @@ curl -i --max-time 10 http://127.0.0.1:8000/api/user/available_zakupki
 ```bash
 tail -n 120 /opt/eisparser/results/logs/api.log
 tail -n 200 /opt/eisparser/results/logs/worker.log
+```
+
+Проверка стабильности ingest (Stage 1):
+```bash
+tail -n 300 /opt/eisparser/results/logs/worker.log | grep -E "Cron iteration start|Cycle [0-9]+ started|Stage 1 started|Stage 1 finished"
 ```
 
 ## 7) Обязательные security-настройки

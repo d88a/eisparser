@@ -50,6 +50,11 @@ eisparser/
 - `WORKER_ENABLE_STAGE4`
 - `EIS_RETRY_COUNT`, `EIS_RETRY_BACKOFF_S`, `EIS_REQUEST_TIMEOUT_S`
 
+Режим доступа:
+1. `PUBLIC` — baseline для бесплатного пользовательского контура.
+2. `AUTH_REQUIRED` — опциональный переключатель user-контурa.
+3. Admin-контур остается изолирован и требует admin auth в любом режиме.
+
 Логика выбора БД:
 1. если задан `DATABASE_URL` - PostgreSQL;
 2. если `DATABASE_URL` пуст - SQLite (`DATABASE_PATH`).

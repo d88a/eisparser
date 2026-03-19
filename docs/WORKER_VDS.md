@@ -11,6 +11,7 @@ PYTHONPATH=/opt/eisparser/src /opt/eisparser/.venv/bin/python /opt/eisparser/src
 - `WORKER_ENABLE_STAGE4`
 - `STAGE1_MAX_PAGES`
 - `AI_STAGE2_DELAY_S`
+- `PROXY_URL` (если используется)
 - `EIS_RETRY_COUNT`
 - `EIS_RETRY_BACKOFF_S`
 - `EIS_REQUEST_TIMEOUT_S`
@@ -105,6 +106,46 @@ grep "stage_progress" /opt/eisparser/results/logs/worker.log | tail -n 200
 ## Retry-логика
 - Stage 2 повторно берет `ai_error`.
 - Stage 4 повторно берет `stage4_error`.
+
+## Ежедневный Stage 1 чек-лист
+1. Проверить сервисы:
+```bash
+systemctl status eisparser-api --no-pager
+systemctl status eisparser-worker-ingest --no-pager
+systemctl status eisparser-worker-listing --no-pager
+```
+2. Проверить последние циклы ingest:
+```bash
+tail -n 300 /opt/eisparser/results/logs/worker.log | grep -E "Cron iteration start|Cycle [0-9]+ started|Stage 1 started|Stage 1 finished"
+```
+3. Убедиться, что нет crash-loop (повторяющиеся фатальные ошибки без успешных циклов):
+```bash
+tail -n 300 /opt/eisparser/results/logs/worker.log | grep -E "Traceback|Unexpected cycle error|Failed to acquire advisory lock"
+```
+4. Проверить env деградации в `/opt/eisparser/src/.env`:
+- `PROXY_URL` (если нужен прокси)
+- `EIS_RETRY_COUNT`
+- `EIS_RETRY_BACKOFF_S`
+- `EIS_REQUEST_TIMEOUT_S`
+
+## Быстрая реакция при недоступности ЕИС
+1. Симптомы:
+- регулярные ошибки Stage 1 с `timeout/http_5xx/network_error`;
+- Stage 1 завершается без новых загрузок несколько циклов подряд.
+2. Действия:
+```bash
+grep -E "search_page|print_form|documents_list|document_download|Stage 1" /opt/eisparser/results/logs/worker.log | tail -n 120
+```
+3. При необходимости временно усилить деградационный профиль:
+- увеличить `EIS_RETRY_COUNT` (например, `5`);
+- увеличить `EIS_RETRY_BACKOFF_S` (например, `3.0`);
+- проверить/включить `PROXY_URL`.
+4. После изменения env:
+```bash
+systemctl restart eisparser-worker-ingest
+systemctl status eisparser-worker-ingest --no-pager
+tail -n 120 /opt/eisparser/results/logs/worker.log
+```
 
 ## Рекомендуемые параметры на текущем тарифе
 - `worker-ingest`: `--limit 5..10`, `AI_STAGE2_DELAY_S=4..6`

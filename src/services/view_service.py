@@ -1,4 +1,4 @@
-﻿"""
+"""
 РЎРµСЂРІРёСЃ РґР»СЏ РїРѕРґРіРѕС‚РѕРІРєРё view-РјРѕРґРµР»РµР№.
 """
 from typing import List, Optional
@@ -80,7 +80,7 @@ class ViewService:
                         listings_min_price = min(prices)
                         listings_max_price = max(prices)
                 
-                # 6. РЎРѕР·РґР°РµРј View СЃ Р’РЎР•РњР РїРѕР»СЏРјРё AI
+                # 6. Build view with AI fields
                 view = ZakupkaStageView(
                     reg_number=z.reg_number,
                     description=z.description or "",

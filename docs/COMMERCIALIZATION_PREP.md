@@ -5,6 +5,11 @@
 ## Цель
 Подготовить технический фундамент для платных ограничений и аналитики, не меняя текущую бесплатную продуктовую логику и default-поведение.
 
+Текущий baseline:
+- Коммерческие ограничения выключены.
+- User API работает в `USER_ACCESS_MODE=PUBLIC` (если явно не включен `AUTH_REQUIRED`).
+- Admin API не зависит от коммерческих флагов и всегда требует admin auth.
+
 ## 1) События пользовательских действий
 
 Минимальный набор событий:
@@ -69,6 +74,11 @@
 - `limits.user_stage4_runs.enabled`
 - `limits.max_selected_items.enabled`
 - `limits.api_rate_limit.enabled`
+
+Env-заготовки (по умолчанию выключены):
+- `BILLING_ENABLED=false`
+- `LIMITS_USER_STAGE4_RUNS_ENABLED=false`
+- `LIMITS_MAX_SELECTED_ITEMS_ENABLED=false`
 
 Правила:
 - В коде всегда есть fallback в текущую бесплатную модель.

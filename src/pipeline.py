@@ -1,4 +1,4 @@
-﻿"""
+"""
 Pipeline вЂ” РѕСЂРєРµСЃС‚СЂР°С‚РѕСЂ РґР»СЏ РѕР±СЉРµРґРёРЅРµРЅРёСЏ РІСЃРµС… СЃС‚Р°РґРёР№ РѕР±СЂР°Р±РѕС‚РєРё.
 """
 from typing import Optional, List
@@ -19,27 +19,26 @@ from utils.logger import get_logger
 
 
 class Pipeline:
-    """
-    РћСЂРєРµСЃС‚СЂР°С‚РѕСЂ РґР»СЏ РІС‹РїРѕР»РЅРµРЅРёСЏ РїРѕР»РЅРѕРіРѕ РїР°Р№РїР»Р°Р№РЅР° РѕР±СЂР°Р±РѕС‚РєРё Р·Р°РєСѓРїРѕРє.
-    
-    РЎС‚Р°РґРёРё:
-    1. Р—Р°РіСЂСѓР·РєР° Р·Р°РєСѓРїРѕРє СЃ Р•РРЎ
-    2. РР-Р°РЅР°Р»РёР· С‚РµРєСЃС‚РѕРІ
-    3. Р“РµРЅРµСЂР°С†РёСЏ СЃСЃС‹Р»РѕРє 2Р“РРЎ
-    4. РЎР±РѕСЂ РѕР±СЉСЏРІР»РµРЅРёР№
+    """Orchestrator for the end-to-end purchase processing pipeline.
+
+    Stages:
+    1. Load purchases from EIS
+    2. AI analysis of purchase texts
+    3. Generate 2GIS links
+    4. Collect listings
     """
     
     def __init__(self, db_path: str = None):
         """
         Args:
-            db_path: РџСѓС‚СЊ Рє Р‘Р”. Р•СЃР»Рё РЅРµ СѓРєР°Р·Р°РЅ, Р±РµСЂС‘С‚СЃСЏ РёР· settings.
+            db_path: Path to DB. If not set, value from settings is used.
         """
         self.logger = get_logger("Pipeline")
         
-        # РРЅРёС†РёР°Р»РёР·РёСЂСѓРµРј DatabaseService
+        # Initialize DatabaseService
         self.db = DatabaseService(db_path)
         
-        # РРЅРёС†РёР°Р»РёР·РёСЂСѓРµРј СЃРµСЂРІРёСЃС‹ СЃ СЂРµРїРѕР·РёС‚РѕСЂРёСЏРјРё РёР· DatabaseService
+        # Initialize services with repositories from DatabaseService
         self.eis = EISService(self.db.zakupki)
         self.ai = AIService(self.db.ai_results)
         self.gis = GISService()
@@ -52,7 +51,7 @@ class Pipeline:
         self.logger.info("Pipeline инициализирован")
     
     def init_database(self) -> bool:
-        """РРЅРёС†РёР°Р»РёР·РёСЂСѓРµС‚ Р±Р°Р·Сѓ РґР°РЅРЅС‹С…."""
+        """Initialize database."""
         return self.db.init_database()
 
     def _log_stage_progress(self, stage: int, reg_number: str, result: str, reason: str = ""):
@@ -121,13 +120,13 @@ class Pipeline:
         user_id: int = 1
     ) -> Optional[str]:
         """
-        РЎС‚Р°РґРёСЏ 3: Р“РµРЅРµСЂР°С†РёСЏ СЃСЃС‹Р»РєРё 2Р“РРЎ РґР»СЏ РѕРґРЅРѕР№ Р·Р°РєСѓРїРєРё.
-        Uses effective_value = user_override ?? ai_value.
+        Stage 3: Generate a 2GIS link for one purchase.
+        Uses effective value = user override or AI value.
         
         Args:
-            reg_number: РќРѕРјРµСЂ Р·Р°РєСѓРїРєРё
-            ai_result: Р РµР·СѓР»СЊС‚Р°С‚ РР-Р°РЅР°Р»РёР·Р°
-            user_id: ID РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РґР»СЏ overrides
+            reg_number: Purchase registration number
+            ai_result: AI analysis result
+            user_id: User ID for overrides
         
         Returns:
             РЎРіРµРЅРµСЂРёСЂРѕРІР°РЅРЅС‹Р№ URL РёР»Рё None
@@ -238,7 +237,7 @@ class Pipeline:
         
         Args:
             reg_number: РќРѕРјРµСЂ Р·Р°РєСѓРїРєРё
-            url: URL РїРѕРёСЃРєР° 2Р“РРЎ
+            url: 2GIS search URL
             top_n: РљРѕР»РёС‡РµСЃС‚РІРѕ РѕР±СЉСЏРІР»РµРЅРёР№
             get_details: РџРѕР»СѓС‡Р°С‚СЊ РґРµС‚Р°Р»Рё (РіРѕРґ РїРѕСЃС‚СЂРѕР№РєРё)
         
@@ -339,12 +338,12 @@ class Pipeline:
     
     def run_stage1(self, limit: int = 10) -> StageResult:
         """
-        Stage 1: Р—Р°РіСЂСѓР·РєР° Р·Р°РєСѓРїРѕРє СЃ Р•РРЎ С‡РµСЂРµР· EISDownloaderService (РћРљРџР”2 68.10.11).
+        Stage 1: Load purchases from EIS via EISDownloaderService (OKPD2 68.10.11).
         
-        Р›РѕРіРёРєР°:
-        1. РС‰РµРј Р·Р°РєСѓРїРєРё РЅР° Р•РРЎ
-        2. РџСЂРѕРїСѓСЃРєР°РµРј С‚Рµ, С‡С‚Рѕ СѓР¶Рµ РµСЃС‚СЊ РІ Р‘Р”
-        3. Р—Р°РіСЂСѓР¶Р°РµРј РґРѕРєСѓРјРµРЅС‚С‹ Рё СЃРѕР·РґР°С‘Рј combined_text
+        Logic:
+        1. Search purchases on EIS
+        2. Skip entries already stored in DB
+        3. Download documents and build combined_text
         4. РЎРѕС…СЂР°РЅСЏРµРј РІ Р‘Р”
         5. РЈРґР°Р»СЏРµРј РїР°РїРєСѓ СЃ РґРѕРєСѓРјРµРЅС‚Р°РјРё (С‚РµРєСЃС‚ СѓР¶Рµ РІ Р‘Р”)
         
@@ -375,7 +374,7 @@ class Pipeline:
             while saved_new < limit and page <= max_pages:
                 self.logger.info(f"Страница {page}...")
                 
-                # РСЃРїРѕР»СЊР·СѓРµРј РћРћРџ-СЃРµСЂРІРёСЃ EISDownloaderService
+                # Use OOP service EISDownloaderService
                 html = self.eis_downloader._fetch_search_page(page)
                 if not html:
                     if page == 1:
@@ -505,7 +504,7 @@ class Pipeline:
     
     def _get_print_form(self, reg_number: str) -> str:
         """
-        РџРѕР»СѓС‡Р°РµС‚ С‚РµРєСЃС‚ РїРµС‡Р°С‚РЅРѕР№ С„РѕСЂРјС‹ Р·Р°РєСѓРїРєРё СЃ Р•РРЎ.
+        Get print form text for a purchase from EIS.
         
         Args:
             reg_number: Р РµРіРёСЃС‚СЂР°С†РёРѕРЅРЅС‹Р№ РЅРѕРјРµСЂ Р·Р°РєСѓРїРєРё
@@ -525,18 +524,18 @@ class Pipeline:
             
             soup = BeautifulSoup(resp.text, "html.parser")
             
-            # РЈРґР°Р»СЏРµРј СЃРєСЂРёРїС‚С‹ Рё СЃС‚РёР»Рё
+            # Remove scripts and styles
             for tag in soup.find_all(['script', 'style', 'nav', 'header', 'footer']):
                 tag.decompose()
             
-            # РС‰РµРј РѕСЃРЅРѕРІРЅРѕР№ РєРѕРЅС‚РµРЅС‚
+            # Find main content
             main_content = soup.find('div', class_='wrapper')
             if not main_content:
                 main_content = soup.find('main')
             if not main_content:
                 main_content = soup
             
-            # РР·РІР»РµРєР°РµРј С‚РµРєСЃС‚
+            # Extract text
             text = main_content.get_text(separator='\n', strip=True)
             
             # РћС‡РёС‰Р°РµРј РѕС‚ Р»РёС€РЅРёС… РїСѓСЃС‚С‹С… СЃС‚СЂРѕРє
@@ -715,7 +714,7 @@ class Pipeline:
         )
     def run_stage3(self, limit: int = None, reg_numbers: List[str] = None, overwrite: bool = False) -> StageResult:
         """
-        Stage 3: РіРµРЅРµСЂР°С†РёСЏ СЃСЃС‹Р»РѕРє 2Р“РРЎ.
+        Stage 3: generate 2GIS links.
         
         Args:
             limit: РљРѕР»РёС‡РµСЃС‚РІРѕ Р·Р°РєСѓРїРѕРє РґР»СЏ РѕР±СЂР°Р±РѕС‚РєРё (None = РІСЃРµ)
@@ -731,7 +730,7 @@ class Pipeline:
         generated = 0
         items = []
         
-        # ???????? ai_results
+        # Collect source AI results
         if reg_numbers:
             ai_results = []
             for reg in reg_numbers:
@@ -790,7 +789,7 @@ class Pipeline:
         get_details: bool = False
     ) -> StageResult:
         """
-        Stage 4: РЎР±РѕСЂ РѕР±СЉСЏРІР»РµРЅРёР№ СЃ 2Р“РРЎ.
+        Stage 4: collect listings from 2GIS.
         
         Args:
             top_n: РљРѕР»РёС‡РµСЃС‚РІРѕ РѕР±СЉСЏРІР»РµРЅРёР№ РЅР° Р·Р°РєСѓРїРєСѓ
