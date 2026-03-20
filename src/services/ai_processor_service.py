@@ -87,10 +87,16 @@ class AIProcessorService:
         self.repo = ai_result_repo
         self.api_key = api_key or settings.cerebras_api_key or os.getenv("CEREBRAS_API_KEY")
         self.model_name = model_name or settings.cerebras_model or os.getenv("CEREBRAS_MODEL", "gpt-oss-120b")
+        fallback_raw = (os.getenv("CEREBRAS_MODEL_FALLBACKS", "") or "").strip()
+        fallback_models = [m.strip() for m in fallback_raw.split(",") if m.strip()]
+        self.model_candidates: List[str] = []
+        for m in [self.model_name] + fallback_models:
+            if m and m not in self.model_candidates:
+                self.model_candidates.append(m)
         self.base_url = (settings.cerebras_base_url or os.getenv("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")).rstrip("/")
         self.api_url = f"{self.base_url}/chat/completions"
         self.logger = get_logger("AIProcessorService")
-        self.logger.info("AI model selected: %s", self.model_name)
+        self.logger.info("AI models configured: %s", ", ".join(self.model_candidates))
     
     def _log_header_diagnostics(self, headers: Dict[str, str]):
         """Logs latin-1 diagnostics for headers and proxy env variables."""
@@ -155,28 +161,32 @@ class AIProcessorService:
         return head + marker, True
     
     def _call_cerebras(self, text: str) -> Optional[Dict[str, Any]]:
-        """Вызывает Cerebras API и возвращает извлечённые поля."""
+        """Calls OpenAI-compatible API and returns extracted fields."""
         if not self.api_key:
             raise RuntimeError("CEREBRAS_API_KEY is not set")
-        
+
         prepared_text, truncated = self._prepare_text(text)
         user_prompt = (
-            "Ниже приведён объединённый текст по закупке.\n"
-            "=== Начало объединённого текста ===\n"
+            "???????? ???????????????? ???????????????????????? ?????????? ???? ??????????????.\n"
+            "=== ???????????? ?????????????????????????? ???????????? ===\n"
             f"{prepared_text}\n"
-            "=== Конец объединённого текста ===\n"
+            "=== ?????????? ?????????????????????????? ???????????? ===\n"
         )
         if truncated:
-            user_prompt += "\n(Текст был автоматически сокращён.)"
-        
+            user_prompt += "\n(?????????? ?????? ?????????????????????????? ????????????????.)"
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            ),
         }
         self._log_header_diagnostics(headers)
-        payload = {
-            "model": self.model_name,
+
+        payload_base = {
             "messages": [
                 {"role": "system", "content": self.SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
@@ -184,61 +194,82 @@ class AIProcessorService:
             "temperature": 0.1,
             "response_format": {"type": "json_object"},
         }
-        
-        max_retries = 3
-        retry_sleep_s = 15
 
-        for attempt in range(1, max_retries + 1):
-            resp = requests.post(
-                self.api_url,
-                headers=headers,
-                json=payload,
-                timeout=120,
-            )
+        max_retries = max(1, int(os.getenv("CEREBRAS_MODEL_RETRIES", "2")))
+        retry_sleep_s = max(0.0, float(os.getenv("CEREBRAS_RETRY_SLEEP_S", "12")))
 
-            self.logger.info(f"Cerebras status: {resp.status_code}")
-            self.logger.info(f"Cerebras response head: {resp.text[:500]}")
+        for model in self.model_candidates:
+            payload = dict(payload_base)
+            payload["model"] = model
 
-            if resp.status_code == 429:
-                self.logger.warning(f"Лимит токенов превышен (429). Попытка {attempt}/{max_retries}.")
-                if attempt < max_retries:
-                    time.sleep(retry_sleep_s)
-                    continue
-                return None
+            for attempt in range(1, max_retries + 1):
+                resp = requests.post(
+                    self.api_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=120,
+                )
 
-            if resp.status_code != 200:
-                self.logger.error(f"Ошибка API: {resp.status_code}, {resp.text[:500]}")
-                return None
+                self.logger.info(
+                    "Cerebras status: %s (model=%s attempt=%s/%s)",
+                    resp.status_code,
+                    model,
+                    attempt,
+                    max_retries,
+                )
+                self.logger.info("Cerebras response head: %s", (resp.text or "")[:500])
 
-            break
-        
-        try:
-            data = resp.json()
-            content = data["choices"][0]["message"]["content"]
-        except (JSONDecodeError, KeyError, IndexError) as e:
-            self.logger.error(f"Ошибка парсинга ответа API: {e}")
-            return None
-        
-        # Парсим JSON из content
-        try:
-            content = content.strip()
-            if content.startswith("```"):
-                content = content.strip("`")
-                idx = content.find("{")
-                if idx != -1:
-                    content = content[idx:]
-            result = json.loads(content)
-            # Проверяем что это словарь, а не список
-            if isinstance(result, list):
-                self.logger.warning("Cerebras вернул список, используем первый элемент или пустой результат")
-                if result and isinstance(result[0], dict):
-                    return result[0]
-                return None
-            return result
-        except Exception as e:
-            self.logger.error(f"Ошибка парсинга JSON от модели: {e}")
-            return None
-    
+                if resp.status_code == 200:
+                    try:
+                        data = resp.json()
+                        content = data["choices"][0]["message"]["content"]
+                    except (JSONDecodeError, KeyError, IndexError) as e:
+                        self.logger.error("API response parse error (model=%s): %s", model, e)
+                        break
+
+                    try:
+                        content = content.strip()
+                        if content.startswith("```"):
+                            content = content.strip("`")
+                            idx = content.find("{")
+                            if idx != -1:
+                                content = content[idx:]
+                        result = json.loads(content)
+                        if isinstance(result, list):
+                            self.logger.warning(
+                                "Cerebras returned list (model=%s), using first dict element",
+                                model,
+                            )
+                            if result and isinstance(result[0], dict):
+                                return result[0]
+                            break
+                        return result
+                    except Exception as e:
+                        self.logger.error("JSON parse error from model=%s: %s", model, e)
+                        break
+
+                if resp.status_code in (429, 500, 502, 503, 504):
+                    self.logger.warning(
+                        "Retryable API status=%s (model=%s attempt=%s/%s)",
+                        resp.status_code,
+                        model,
+                        attempt,
+                        max_retries,
+                    )
+                    if attempt < max_retries:
+                        time.sleep(retry_sleep_s)
+                        continue
+                    break
+
+                self.logger.error(
+                    "API error status=%s (model=%s), switching model",
+                    resp.status_code,
+                    model,
+                )
+                break
+
+        return None
+
     def _empty_result(self) -> Dict[str, Any]:
         """Возвращает пустую структуру результата."""
         return {
@@ -365,6 +396,70 @@ class AIProcessorService:
             return None
         city_raw = parts[-1]
         return self._clean_city(city_raw)
+
+    @staticmethod
+    def _normalize_location_phrase(value: str) -> Optional[str]:
+        """Normalizes extracted location phrase to a display-safe form."""
+        if not value:
+            return None
+
+        text = " ".join(str(value).replace("\xa0", " ").split())
+        text = text.strip(" ,.;:-")
+        if not text:
+            return None
+
+        text = re.sub(r"\bмуниципальном\b", "муниципальный", text, flags=re.IGNORECASE)
+        text = re.sub(r"\bгородском\b", "городской", text, flags=re.IGNORECASE)
+        text = re.sub(r"\bрайоне\b", "район", text, flags=re.IGNORECASE)
+
+        m = re.match(
+            r"^([А-ЯЁ][А-ЯЁа-яё\\-]+)\s+(муниципальный\s+округ|городской\s+округ|район)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if m:
+            head = m.group(1)
+            tail = m.group(2).lower()
+            head = re.sub(r"ском$", "ский", head, flags=re.IGNORECASE)
+            text = f"{head} {tail}"
+
+        return text.strip()
+
+    def _derive_city_from_text(self, text: str) -> Optional[str]:
+        """
+        Best-effort extraction of settlement/city-like token from free text.
+        Priority: explicit settlement markers -> municipality/district phrases.
+        """
+        if not text:
+            return None
+
+        source = str(text).replace("\xa0", " ")
+
+        settlement_patterns = [
+            r"(?:\bг\.\s*|город(?:е|а|у)?\s+)([А-ЯЁ][А-ЯЁа-яё\-]{2,}(?:\s+[А-ЯЁ][А-ЯЁа-яё\-]{2,})?)",
+            r"(?:\bс\.\s*|село\s+|д\.\s*|деревня\s+|\bп\.\s*|пгт\s+|пос(?:елок|ёлок|\.?)\s+)([А-ЯЁ][А-ЯЁа-яё\-]{2,}(?:\s+[А-ЯЁ][А-ЯЁа-яё\-]{2,})?)",
+        ]
+        for pattern in settlement_patterns:
+            m = re.search(pattern, source, flags=re.IGNORECASE)
+            if m:
+                candidate = self._clean_city(m.group(1))
+                normalized = self._normalize_location_phrase(candidate)
+                if normalized:
+                    return normalized
+
+        location_patterns = [
+            r"([А-ЯЁ][А-ЯЁа-яё\-]+)\s+муниципальн(?:ый|ом)\s+округ",
+            r"([А-ЯЁ][А-ЯЁа-яё\-]+)\s+район",
+        ]
+        for pattern in location_patterns:
+            m = re.search(pattern, source, flags=re.IGNORECASE)
+            if m:
+                candidate = m.group(0)
+                normalized = self._normalize_location_phrase(candidate)
+                if normalized:
+                    return normalized
+
+        return None
     
     def process_zakupka(self, zakupka: Zakupka) -> Optional[AIResult]:
         """
@@ -407,13 +502,18 @@ class AIProcessorService:
                     fields["rooms_parsed"] = parsed
             
             # Очистка города от префиксов
-            city = fields.get("city")
-            if not city:
-                derived = self._derive_city_from_address(fields.get("address"))
-                if derived:
-                    fields["city"] = derived
-            elif city:
+            city = (fields.get("city") or "").strip()
+            if city:
                 fields["city"] = self._clean_city(city)
+            else:
+                for candidate in (
+                    self._derive_city_from_address(fields.get("address")),
+                    self._derive_city_from_text(zakupka.description or ""),
+                    self._derive_city_from_text((zakupka.combined_text or "")[:20000]),
+                ):
+                    if candidate:
+                        fields["city"] = candidate
+                        break
             
             # Обратная совместимость: floor_min → floor
             if not fields.get("floor") and fields.get("floor_min"):

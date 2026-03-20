@@ -1,4 +1,4 @@
-"""
+﻿"""
 Pipeline вЂ” РѕСЂРєРµСЃС‚СЂР°С‚РѕСЂ РґР»СЏ РѕР±СЉРµРґРёРЅРµРЅРёСЏ РІСЃРµС… СЃС‚Р°РґРёР№ РѕР±СЂР°Р±РѕС‚РєРё.
 """
 from typing import Optional, List
@@ -19,26 +19,27 @@ from utils.logger import get_logger
 
 
 class Pipeline:
-    """Orchestrator for the end-to-end purchase processing pipeline.
-
-    Stages:
-    1. Load purchases from EIS
-    2. AI analysis of purchase texts
-    3. Generate 2GIS links
-    4. Collect listings
+    """
+    РћСЂРєРµСЃС‚СЂР°С‚РѕСЂ РґР»СЏ РІС‹РїРѕР»РЅРµРЅРёСЏ РїРѕР»РЅРѕРіРѕ РїР°Р№РїР»Р°Р№РЅР° РѕР±СЂР°Р±РѕС‚РєРё Р·Р°РєСѓРїРѕРє.
+    
+    РЎС‚Р°РґРёРё:
+    1. Р—Р°РіСЂСѓР·РєР° Р·Р°РєСѓРїРѕРє СЃ Р•РРЎ
+    2. РР-Р°РЅР°Р»РёР· С‚РµРєСЃС‚РѕРІ
+    3. Р“РµРЅРµСЂР°С†РёСЏ СЃСЃС‹Р»РѕРє 2Р“РРЎ
+    4. РЎР±РѕСЂ РѕР±СЉСЏРІР»РµРЅРёР№
     """
     
     def __init__(self, db_path: str = None):
         """
         Args:
-            db_path: Path to DB. If not set, value from settings is used.
+            db_path: РџСѓС‚СЊ Рє Р‘Р”. Р•СЃР»Рё РЅРµ СѓРєР°Р·Р°РЅ, Р±РµСЂС‘С‚СЃСЏ РёР· settings.
         """
         self.logger = get_logger("Pipeline")
         
-        # Initialize DatabaseService
+        # РРЅРёС†РёР°Р»РёР·РёСЂСѓРµРј DatabaseService
         self.db = DatabaseService(db_path)
         
-        # Initialize services with repositories from DatabaseService
+        # РРЅРёС†РёР°Р»РёР·РёСЂСѓРµРј СЃРµСЂРІРёСЃС‹ СЃ СЂРµРїРѕР·РёС‚РѕСЂРёСЏРјРё РёР· DatabaseService
         self.eis = EISService(self.db.zakupki)
         self.ai = AIService(self.db.ai_results)
         self.gis = GISService()
@@ -51,7 +52,7 @@ class Pipeline:
         self.logger.info("Pipeline инициализирован")
     
     def init_database(self) -> bool:
-        """Initialize database."""
+        """РРЅРёС†РёР°Р»РёР·РёСЂСѓРµС‚ Р±Р°Р·Сѓ РґР°РЅРЅС‹С…."""
         return self.db.init_database()
 
     def _log_stage_progress(self, stage: int, reg_number: str, result: str, reason: str = ""):
@@ -84,12 +85,25 @@ class Pipeline:
         if not (zakupka.combined_text or "").strip():
             return False, "no_combined_text"
 
-        # raw + existing AI is considered already processed.
-        # ai_error is allowed for retry even if stale AI row exists.
-        if ai_result is not None and not overwrite and status != ZakupkaStatus.AI_ERROR:
-            return False, "already_has_ai_result"
+        # If we already have a usable AI result in DB, avoid repeated AI calls.
+        if ai_result is not None and not overwrite:
+            if self._is_ai_result_usable(ai_result):
+                return False, "already_has_ai_result"
+            # Retry is allowed only for ai_error when stored AI row is incomplete.
+            if status != ZakupkaStatus.AI_ERROR:
+                return False, "already_has_ai_result"
 
         return True, None
+
+    @staticmethod
+    def _is_ai_result_usable(ai_result: Optional[AIResult]) -> bool:
+        """Returns True when AI result contains minimum data for Stage 3 usage."""
+        if ai_result is None:
+            return False
+        city = (ai_result.city or "").strip()
+        address = (ai_result.address or "").strip()
+        has_area = ai_result.area_min_m2 is not None or ai_result.area_max_m2 is not None
+        return bool(city) and (bool(address) or has_area)
 
     def get_stage2_pending_items(self, limit: Optional[int] = None, offset: int = 0) -> List[Zakupka]:
         """Returns Stage 2 pending items (full queue by default)."""
@@ -120,13 +134,13 @@ class Pipeline:
         user_id: int = 1
     ) -> Optional[str]:
         """
-        Stage 3: Generate a 2GIS link for one purchase.
-        Uses effective value = user override or AI value.
+        РЎС‚Р°РґРёСЏ 3: Р“РµРЅРµСЂР°С†РёСЏ СЃСЃС‹Р»РєРё 2Р“РРЎ РґР»СЏ РѕРґРЅРѕР№ Р·Р°РєСѓРїРєРё.
+        Uses effective_value = user_override ?? ai_value.
         
         Args:
-            reg_number: Purchase registration number
-            ai_result: AI analysis result
-            user_id: User ID for overrides
+            reg_number: РќРѕРјРµСЂ Р·Р°РєСѓРїРєРё
+            ai_result: Р РµР·СѓР»СЊС‚Р°С‚ РР-Р°РЅР°Р»РёР·Р°
+            user_id: ID РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РґР»СЏ overrides
         
         Returns:
             РЎРіРµРЅРµСЂРёСЂРѕРІР°РЅРЅС‹Р№ URL РёР»Рё None
@@ -237,7 +251,7 @@ class Pipeline:
         
         Args:
             reg_number: РќРѕРјРµСЂ Р·Р°РєСѓРїРєРё
-            url: 2GIS search URL
+            url: URL РїРѕРёСЃРєР° 2Р“РРЎ
             top_n: РљРѕР»РёС‡РµСЃС‚РІРѕ РѕР±СЉСЏРІР»РµРЅРёР№
             get_details: РџРѕР»СѓС‡Р°С‚СЊ РґРµС‚Р°Р»Рё (РіРѕРґ РїРѕСЃС‚СЂРѕР№РєРё)
         
@@ -338,12 +352,12 @@ class Pipeline:
     
     def run_stage1(self, limit: int = 10) -> StageResult:
         """
-        Stage 1: Load purchases from EIS via EISDownloaderService (OKPD2 68.10.11).
+        Stage 1: Р—Р°РіСЂСѓР·РєР° Р·Р°РєСѓРїРѕРє СЃ Р•РРЎ С‡РµСЂРµР· EISDownloaderService (РћРљРџР”2 68.10.11).
         
-        Logic:
-        1. Search purchases on EIS
-        2. Skip entries already stored in DB
-        3. Download documents and build combined_text
+        Р›РѕРіРёРєР°:
+        1. РС‰РµРј Р·Р°РєСѓРїРєРё РЅР° Р•РРЎ
+        2. РџСЂРѕРїСѓСЃРєР°РµРј С‚Рµ, С‡С‚Рѕ СѓР¶Рµ РµСЃС‚СЊ РІ Р‘Р”
+        3. Р—Р°РіСЂСѓР¶Р°РµРј РґРѕРєСѓРјРµРЅС‚С‹ Рё СЃРѕР·РґР°С‘Рј combined_text
         4. РЎРѕС…СЂР°РЅСЏРµРј РІ Р‘Р”
         5. РЈРґР°Р»СЏРµРј РїР°РїРєСѓ СЃ РґРѕРєСѓРјРµРЅС‚Р°РјРё (С‚РµРєСЃС‚ СѓР¶Рµ РІ Р‘Р”)
         
@@ -374,7 +388,7 @@ class Pipeline:
             while saved_new < limit and page <= max_pages:
                 self.logger.info(f"Страница {page}...")
                 
-                # Use OOP service EISDownloaderService
+                # РСЃРїРѕР»СЊР·СѓРµРј РћРћРџ-СЃРµСЂРІРёСЃ EISDownloaderService
                 html = self.eis_downloader._fetch_search_page(page)
                 if not html:
                     if page == 1:
@@ -504,7 +518,7 @@ class Pipeline:
     
     def _get_print_form(self, reg_number: str) -> str:
         """
-        Get print form text for a purchase from EIS.
+        РџРѕР»СѓС‡Р°РµС‚ С‚РµРєСЃС‚ РїРµС‡Р°С‚РЅРѕР№ С„РѕСЂРјС‹ Р·Р°РєСѓРїРєРё СЃ Р•РРЎ.
         
         Args:
             reg_number: Р РµРіРёСЃС‚СЂР°С†РёРѕРЅРЅС‹Р№ РЅРѕРјРµСЂ Р·Р°РєСѓРїРєРё
@@ -524,18 +538,18 @@ class Pipeline:
             
             soup = BeautifulSoup(resp.text, "html.parser")
             
-            # Remove scripts and styles
+            # РЈРґР°Р»СЏРµРј СЃРєСЂРёРїС‚С‹ Рё СЃС‚РёР»Рё
             for tag in soup.find_all(['script', 'style', 'nav', 'header', 'footer']):
                 tag.decompose()
             
-            # Find main content
+            # РС‰РµРј РѕСЃРЅРѕРІРЅРѕР№ РєРѕРЅС‚РµРЅС‚
             main_content = soup.find('div', class_='wrapper')
             if not main_content:
                 main_content = soup.find('main')
             if not main_content:
                 main_content = soup
             
-            # Extract text
+            # РР·РІР»РµРєР°РµРј С‚РµРєСЃС‚
             text = main_content.get_text(separator='\n', strip=True)
             
             # РћС‡РёС‰Р°РµРј РѕС‚ Р»РёС€РЅРёС… РїСѓСЃС‚С‹С… СЃС‚СЂРѕРє
@@ -619,7 +633,14 @@ class Pipeline:
                     elif reason == "already_has_ai_result":
                         self.logger.info(f"[SKIP] {reg_number}: AI-результат уже существует")
                         skipped_already_processed += 1
-                        self._log_stage_progress(2, reg_number, "skip", "already_has_ai_result")
+                        if (
+                            (zakupka.status or "").strip() == ZakupkaStatus.AI_ERROR
+                            and self._is_ai_result_usable(existing)
+                        ):
+                            self.db.zakupki.update_status(reg_number, ZakupkaStatus.AI_READY)
+                            self._log_stage_progress(2, reg_number, "ok", "reused_existing_ai_result")
+                        else:
+                            self._log_stage_progress(2, reg_number, "skip", "already_has_ai_result")
                     else:
                         self.logger.info(
                             f"[SKIP] {reg_number}: статус '{zakupka.status}' не подходит для Stage 2"
@@ -714,7 +735,7 @@ class Pipeline:
         )
     def run_stage3(self, limit: int = None, reg_numbers: List[str] = None, overwrite: bool = False) -> StageResult:
         """
-        Stage 3: generate 2GIS links.
+        Stage 3: РіРµРЅРµСЂР°С†РёСЏ СЃСЃС‹Р»РѕРє 2Р“РРЎ.
         
         Args:
             limit: РљРѕР»РёС‡РµСЃС‚РІРѕ Р·Р°РєСѓРїРѕРє РґР»СЏ РѕР±СЂР°Р±РѕС‚РєРё (None = РІСЃРµ)
@@ -730,7 +751,7 @@ class Pipeline:
         generated = 0
         items = []
         
-        # Collect source AI results
+        # ???????? ai_results
         if reg_numbers:
             ai_results = []
             for reg in reg_numbers:
@@ -789,7 +810,7 @@ class Pipeline:
         get_details: bool = False
     ) -> StageResult:
         """
-        Stage 4: collect listings from 2GIS.
+        Stage 4: РЎР±РѕСЂ РѕР±СЉСЏРІР»РµРЅРёР№ СЃ 2Р“РРЎ.
         
         Args:
             top_n: РљРѕР»РёС‡РµСЃС‚РІРѕ РѕР±СЉСЏРІР»РµРЅРёР№ РЅР° Р·Р°РєСѓРїРєСѓ
