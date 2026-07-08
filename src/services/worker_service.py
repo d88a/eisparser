@@ -1,4 +1,4 @@
-﻿"""Background worker for automatic Stage execution."""
+"""Background worker for automatic Stage execution."""
 
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
-﻿"""
-Pipeline вЂ” РѕСЂРєРµСЃС‚СЂР°С‚РѕСЂ РґР»СЏ РѕР±СЉРµРґРёРЅРµРЅРёСЏ РІСЃРµС… СЃС‚Р°РґРёР№ РѕР±СЂР°Р±РѕС‚РєРё.
+"""
+Pipeline — оркестратор для объединения всех стадий обработки.
 """
 from typing import Optional, List
 from config.settings import settings
@@ -20,39 +20,39 @@ from utils.logger import get_logger
 
 class Pipeline:
     """
-    РћСЂРєРµСЃС‚СЂР°С‚РѕСЂ РґР»СЏ РІС‹РїРѕР»РЅРµРЅРёСЏ РїРѕР»РЅРѕРіРѕ РїР°Р№РїР»Р°Р№РЅР° РѕР±СЂР°Р±РѕС‚РєРё Р·Р°РєСѓРїРѕРє.
+    Оркестратор для выполнения полного пайплайна обработки закупок.
     
-    РЎС‚Р°РґРёРё:
-    1. Р—Р°РіСЂСѓР·РєР° Р·Р°РєСѓРїРѕРє СЃ Р•РРЎ
-    2. РР-Р°РЅР°Р»РёР· С‚РµРєСЃС‚РѕРІ
-    3. Р“РµРЅРµСЂР°С†РёСЏ СЃСЃС‹Р»РѕРє 2Р“РРЎ
-    4. РЎР±РѕСЂ РѕР±СЉСЏРІР»РµРЅРёР№
+    Стадии:
+    1. Загрузка закупок с ЕИС
+    2. ИИ-анализ текстов
+    3. Генерация ссылок 2ГИС
+    4. Сбор объявлений
     """
     
     def __init__(self, db_path: str = None):
         """
         Args:
-            db_path: РџСѓС‚СЊ Рє Р‘Р”. Р•СЃР»Рё РЅРµ СѓРєР°Р·Р°РЅ, Р±РµСЂС‘С‚СЃСЏ РёР· settings.
+            db_path: Путь к БД. Если не указан, берётся из settings.
         """
         self.logger = get_logger("Pipeline")
         
-        # РРЅРёС†РёР°Р»РёР·РёСЂСѓРµРј DatabaseService
+        # Инициализируем DatabaseService
         self.db = DatabaseService(db_path)
         
-        # РРЅРёС†РёР°Р»РёР·РёСЂСѓРµРј СЃРµСЂРІРёСЃС‹ СЃ СЂРµРїРѕР·РёС‚РѕСЂРёСЏРјРё РёР· DatabaseService
+        # Инициализируем сервисы с репозиториями из DatabaseService
         self.eis = EISService(self.db.zakupki)
         self.ai = AIService(self.db.ai_results)
         self.gis = GISService()
         self.scraper = ScraperService(self.db.listings)
         
-        # РќРѕРІС‹Рµ РћРћРџ-СЃРµСЂРІРёСЃС‹ РґР»СЏ Stage 1 Рё 2
+        # Новые ООП-сервисы для Stage 1 и 2
         self.eis_downloader = EISDownloaderService(self.db.zakupki)
         self.ai_processor = AIProcessorService(self.db.ai_results)
         
         self.logger.info("Pipeline инициализирован")
     
     def init_database(self) -> bool:
-        """РРЅРёС†РёР°Р»РёР·РёСЂСѓРµС‚ Р±Р°Р·Сѓ РґР°РЅРЅС‹С…."""
+        """Инициализирует базу данных."""
         return self.db.init_database()
 
     def _log_stage_progress(self, stage: int, reg_number: str, result: str, reason: str = ""):
@@ -134,23 +134,23 @@ class Pipeline:
         user_id: int = 1
     ) -> Optional[str]:
         """
-        РЎС‚Р°РґРёСЏ 3: Р“РµРЅРµСЂР°С†РёСЏ СЃСЃС‹Р»РєРё 2Р“РРЎ РґР»СЏ РѕРґРЅРѕР№ Р·Р°РєСѓРїРєРё.
+        Стадия 3: Генерация ссылки 2ГИС для одной закупки.
         Uses effective_value = user_override ?? ai_value.
         
         Args:
-            reg_number: РќРѕРјРµСЂ Р·Р°РєСѓРїРєРё
-            ai_result: Р РµР·СѓР»СЊС‚Р°С‚ РР-Р°РЅР°Р»РёР·Р°
-            user_id: ID РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РґР»СЏ overrides
+            reg_number: Номер закупки
+            ai_result: Результат ИИ-анализа
+            user_id: ID пользователя для overrides
         
         Returns:
-            РЎРіРµРЅРµСЂРёСЂРѕРІР°РЅРЅС‹Р№ URL РёР»Рё None
+            Сгенерированный URL или None
         """
-        # РџРѕР»СѓС‡Р°РµРј user overrides
+        # Получаем user overrides
         overrides = self.db.user_overrides.get_for_zakupka(reg_number, user_id)
         
-        # Р’С‹С‡РёСЃР»СЏРµРј effective values
+        # Вычисляем effective values
         city = overrides.get('city') or ai_result.city
-        # price_rub РѕС‚СЃСѓС‚СЃС‚РІСѓРµС‚ РІ AIResult; РёСЃРїРѕР»СЊР·СѓРµРј override -> Р·Р°РєСѓРїРєР°.initial_price
+        # price_rub отсутствует в AIResult; используем override -> закупка.initial_price
         if overrides.get('price_rub'):
             price_rub = float(overrides.get('price_rub'))
         else:
@@ -173,11 +173,11 @@ class Pipeline:
             self.logger.warning(f"[SKIP] Нет города для {reg_number}")
             return None
         
-        # РџР°СЂСЃРёРј РєРѕРјРЅР°С‚С‹
+        # Парсим комнаты
         rooms_list = []
         if rooms_str:
             try:
-                # РџСЂРѕСЃС‚РѕР№ РїР°СЂСЃРёРЅРі: "1,2,3" РёР»Рё "1-3"
+                # Простой парсинг: "1,2,3" или "1-3"
                 import re
                 if ',' in str(rooms_str):
                     rooms_list = [int(x.strip()) for x in str(rooms_str).split(',') if x.strip().isdigit()]
@@ -192,7 +192,7 @@ class Pipeline:
         else:
             rooms_list = ai_result.get_rooms_list()
         
-        # РџР°СЂСЃРёРј СЌС‚Р°Р¶
+        # Парсим этаж
         floor_min = None
         if floor_str:
             try:
@@ -214,7 +214,7 @@ class Pipeline:
         if url:
             self.eis.update_two_gis_url(reg_number, url)
             
-            # РћР±РЅРѕРІР»СЏРµРј СЃС‚Р°С‚СѓСЃ РЅР° URL_READY (Р­С‚Р°Рї 3)
+            # Обновляем статус на URL_READY (Этап 3)
             self.db.zakupki.update_status(reg_number, ZakupkaStatus.URL_READY, prepared_by_user_id=user_id)
             
             self.logger.info(f"[OK] Ссылка сгенерирована для {reg_number} (city={city})")
@@ -247,13 +247,13 @@ class Pipeline:
         get_details: bool = False
     ) -> ListingResult:
         """
-        РЎС‚Р°РґРёСЏ 4: РЎР±РѕСЂ РѕР±СЉСЏРІР»РµРЅРёР№ РґР»СЏ РѕРґРЅРѕР№ Р·Р°РєСѓРїРєРё.
+        Стадия 4: Сбор объявлений для одной закупки.
         
         Args:
-            reg_number: РќРѕРјРµСЂ Р·Р°РєСѓРїРєРё
-            url: URL РїРѕРёСЃРєР° 2Р“РРЎ
-            top_n: РљРѕР»РёС‡РµСЃС‚РІРѕ РѕР±СЉСЏРІР»РµРЅРёР№
-            get_details: РџРѕР»СѓС‡Р°С‚СЊ РґРµС‚Р°Р»Рё (РіРѕРґ РїРѕСЃС‚СЂРѕР№РєРё)
+            reg_number: Номер закупки
+            url: URL поиска 2ГИС
+            top_n: Количество объявлений
+            get_details: Получать детали (год постройки)
         
         Returns:
             ListingResult
@@ -277,7 +277,7 @@ class Pipeline:
         return result
     
     def get_statistics(self) -> dict:
-        """Р’РѕР·РІСЂР°С‰Р°РµС‚ СЃС‚Р°С‚РёСЃС‚РёРєСѓ РїРѕ РІСЃРµРјСѓ РїР°Р№РїР»Р°Р№РЅСѓ."""
+        """Возвращает статистику по всему пайплайну."""
         return {
             "zakupki": self.eis.count(),
             "ai_results": self.ai.count(),
@@ -293,17 +293,17 @@ class Pipeline:
         get_details: bool = False
     ) -> dict:
         """
-        РћР±СЂР°Р±Р°С‚С‹РІР°РµС‚ РѕРґРЅСѓ Р·Р°РєСѓРїРєСѓ С‡РµСЂРµР· РІРµСЃСЊ РїР°Р№РїР»Р°Р№РЅ.
+        Обрабатывает одну закупку через весь пайплайн.
         
         Args:
-            reg_number: РќРѕРјРµСЂ Р·Р°РєСѓРїРєРё
-            run_stage3: Р’С‹РїРѕР»РЅРёС‚СЊ РіРµРЅРµСЂР°С†РёСЋ СЃСЃС‹Р»РѕРє
-            run_stage4: Р’С‹РїРѕР»РЅРёС‚СЊ СЃР±РѕСЂ РѕР±СЉСЏРІР»РµРЅРёР№
-            top_n: РљРѕР»РёС‡РµСЃС‚РІРѕ РѕР±СЉСЏРІР»РµРЅРёР№
-            get_details: РџРѕР»СѓС‡Р°С‚СЊ РґРµС‚Р°Р»Рё
+            reg_number: Номер закупки
+            run_stage3: Выполнить генерацию ссылок
+            run_stage4: Выполнить сбор объявлений
+            top_n: Количество объявлений
+            get_details: Получать детали
         
         Returns:
-            Р РµР·СѓР»СЊС‚Р°С‚С‹ РѕР±СЂР°Р±РѕС‚РєРё
+            Результаты обработки
         """
         result = {
             "reg_number": reg_number,
@@ -312,7 +312,7 @@ class Pipeline:
             "errors": []
         }
         
-        # РџРѕР»СѓС‡Р°РµРј ai_result
+        # Получаем ai_result
         ai_result = self.ai.get_result(reg_number)
         if not ai_result:
             result["errors"].append("Нет результата ИИ-анализа")
@@ -347,25 +347,25 @@ class Pipeline:
         return result
     
     # ================================================================
-    # РњРµС‚РѕРґС‹ РґР»СЏ Р·Р°РїСѓСЃРєР° РєР°Р¶РґРѕРіРѕ СЌС‚Р°РїР° РѕС‚РґРµР»СЊРЅРѕ (РґР»СЏ CLI Рё РґР°С€Р±РѕСЂРґР°)
+    # Методы для запуска каждого этапа отдельно (для CLI и дашборда)
     # ================================================================
     
     def run_stage1(self, limit: int = 10) -> StageResult:
         """
-        Stage 1: Р—Р°РіСЂСѓР·РєР° Р·Р°РєСѓРїРѕРє СЃ Р•РРЎ С‡РµСЂРµР· EISDownloaderService (РћРљРџР”2 68.10.11).
+        Stage 1: Загрузка закупок с ЕИС через EISDownloaderService (ОКПД2 68.10.11).
         
-        Р›РѕРіРёРєР°:
-        1. РС‰РµРј Р·Р°РєСѓРїРєРё РЅР° Р•РРЎ
-        2. РџСЂРѕРїСѓСЃРєР°РµРј С‚Рµ, С‡С‚Рѕ СѓР¶Рµ РµСЃС‚СЊ РІ Р‘Р”
-        3. Р—Р°РіСЂСѓР¶Р°РµРј РґРѕРєСѓРјРµРЅС‚С‹ Рё СЃРѕР·РґР°С‘Рј combined_text
-        4. РЎРѕС…СЂР°РЅСЏРµРј РІ Р‘Р”
-        5. РЈРґР°Р»СЏРµРј РїР°РїРєСѓ СЃ РґРѕРєСѓРјРµРЅС‚Р°РјРё (С‚РµРєСЃС‚ СѓР¶Рµ РІ Р‘Р”)
+        Логика:
+        1. Ищем закупки на ЕИС
+        2. Пропускаем те, что уже есть в БД
+        3. Загружаем документы и создаём combined_text
+        4. Сохраняем в БД
+        5. Удаляем папку с документами (текст уже в БД)
         
         Args:
-            limit: РљРѕР»РёС‡РµСЃС‚РІРѕ РќРћР’Р«РҐ Р·Р°РєСѓРїРѕРє РґР»СЏ Р·Р°РіСЂСѓР·РєРё
+            limit: Количество НОВЫХ закупок для загрузки
         
         Returns:
-            StageResult СЃ РґР°РЅРЅС‹РјРё Рѕ Р·Р°РіСЂСѓР·РєРµ
+            StageResult с данными о загрузке
         """
         import os
         import shutil
@@ -375,7 +375,7 @@ class Pipeline:
         errors = []
         saved_new = 0
         skipped_existing = 0
-        processed_reg_numbers = set()  # Р”Р»СЏ РґРµРґСѓРїР»РёРєР°С†РёРё
+        processed_reg_numbers = set()  # Для дедупликации
         
         try:
             page = 1
@@ -388,7 +388,7 @@ class Pipeline:
             while saved_new < limit and page <= max_pages:
                 self.logger.info(f"Страница {page}...")
                 
-                # РСЃРїРѕР»СЊР·СѓРµРј РћРћРџ-СЃРµСЂРІРёСЃ EISDownloaderService
+                # Используем ООП-сервис EISDownloaderService
                 html = self.eis_downloader._fetch_search_page(page)
                 if not html:
                     if page == 1:
@@ -410,27 +410,27 @@ class Pipeline:
                     
                     reg_number = p.get('reg_number', '')
                     
-                    # РџСЂРѕРїСѓСЃРєР°РµРј РґСѓР±Р»РёРєР°С‚С‹ РЅР° С‚РµРєСѓС‰РµР№ СЃС‚СЂР°РЅРёС†Рµ
+                    # Пропускаем дубликаты на текущей странице
                     if reg_number in processed_reg_numbers:
                         continue
                     processed_reg_numbers.add(reg_number)
                     
-                    # РџСЂРѕРІРµСЂСЏРµРј РµСЃС‚СЊ Р»Рё РІ Р‘Р”
+                    # Проверяем есть ли в БД
                     existing = self.eis.get_zakupka(reg_number)
                     if existing and existing.combined_text:
                         self.logger.info(f"  [SKIP] {reg_number} — уже в БД")
                         skipped_existing += 1
                         continue
                     
-                    # Р—Р°РіСЂСѓР¶Р°РµРј РґРѕРєСѓРјРµРЅС‚С‹ С‡РµСЂРµР· РћРћРџ-СЃРµСЂРІРёСЃ
+                    # Загружаем документы через ООП-сервис
                     try:
                         self.logger.info(f"[INFO] Обработка {reg_number}...")
                         
-                        # EISDownloaderService.download_documents СѓР¶Рµ Р·Р°РіСЂСѓР¶Р°РµС‚ 
-                        # РїРµС‡Р°С‚РЅСѓСЋ С„РѕСЂРјСѓ Рё РґРѕРєСѓРјРµРЅС‚С‹, СЃРѕР·РґР°С‘С‚ combined_text.txt
+                        # EISDownloaderService.download_documents уже загружает 
+                        # печатную форму и документы, создаёт combined_text.txt
                         combined_path = self.eis_downloader.download_documents(reg_number)
                         
-                        # Р§РёС‚Р°РµРј С‚РµРєСЃС‚
+                        # Читаем текст
                         combined_text = ""
                         if combined_path and os.path.exists(combined_path):
                             with open(combined_path, 'r', encoding='utf-8') as f:
@@ -440,7 +440,7 @@ class Pipeline:
                             self.logger.warning(f"[SKIP] Нет текста для {reg_number}")
                             continue
                         
-                        # РЎРѕС…СЂР°РЅСЏРµРј РІ Р‘Р”
+                        # Сохраняем в БД
                         zakupka = Zakupka(
                             reg_number=reg_number,
                             description=p.get('description', ''),
@@ -461,12 +461,12 @@ class Pipeline:
                         if self.eis.save_zakupka(zakupka):
                             saved_new += 1
                             
-                            # РћР±РЅРѕРІР»СЏРµРј СЃС‚Р°С‚СѓСЃ РЅР° RAW (Р­С‚Р°Рї 1 -> 2)
+                            # Обновляем статус на RAW (Этап 1 -> 2)
                             self.db.zakupki.update_status(reg_number, ZakupkaStatus.RAW)
                             
                             self.logger.info(f"[OK] Сохранена закупка {reg_number} ({saved_new}/{limit})")
                             
-                            # РЈРґР°Р»СЏРµРј РїР°РїРєСѓ вЂ” С‚РµРєСЃС‚ СѓР¶Рµ РІ Р‘Р”
+                            # Удаляем папку — текст уже в БД
                             zakupka_dir = self.eis_downloader.zakupki_dir / reg_number
                             if zakupka_dir.exists():
                                 shutil.rmtree(zakupka_dir, ignore_errors=True)
@@ -518,13 +518,13 @@ class Pipeline:
     
     def _get_print_form(self, reg_number: str) -> str:
         """
-        РџРѕР»СѓС‡Р°РµС‚ С‚РµРєСЃС‚ РїРµС‡Р°С‚РЅРѕР№ С„РѕСЂРјС‹ Р·Р°РєСѓРїРєРё СЃ Р•РРЎ.
+        Получает текст печатной формы закупки с ЕИС.
         
         Args:
-            reg_number: Р РµРіРёСЃС‚СЂР°С†РёРѕРЅРЅС‹Р№ РЅРѕРјРµСЂ Р·Р°РєСѓРїРєРё
+            reg_number: Регистрационный номер закупки
         
         Returns:
-            РўРµРєСЃС‚ РїРµС‡Р°С‚РЅРѕР№ С„РѕСЂРјС‹ РёР»Рё РїСѓСЃС‚Р°СЏ СЃС‚СЂРѕРєР°
+            Текст печатной формы или пустая строка
         """
         import requests
         from bs4 import BeautifulSoup
@@ -538,23 +538,23 @@ class Pipeline:
             
             soup = BeautifulSoup(resp.text, "html.parser")
             
-            # РЈРґР°Р»СЏРµРј СЃРєСЂРёРїС‚С‹ Рё СЃС‚РёР»Рё
+            # Удаляем скрипты и стили
             for tag in soup.find_all(['script', 'style', 'nav', 'header', 'footer']):
                 tag.decompose()
             
-            # РС‰РµРј РѕСЃРЅРѕРІРЅРѕР№ РєРѕРЅС‚РµРЅС‚
+            # Ищем основной контент
             main_content = soup.find('div', class_='wrapper')
             if not main_content:
                 main_content = soup.find('main')
             if not main_content:
                 main_content = soup
             
-            # РР·РІР»РµРєР°РµРј С‚РµРєСЃС‚
+            # Извлекаем текст
             text = main_content.get_text(separator='\n', strip=True)
             
-            # РћС‡РёС‰Р°РµРј РѕС‚ Р»РёС€РЅРёС… РїСѓСЃС‚С‹С… СЃС‚СЂРѕРє
+            # Очищаем от лишних пустых строк
             lines = [line.strip() for line in text.split('\n') if line.strip()]
-            result = '\n'.join(lines[:200])  # РџРµСЂРІС‹Рµ 200 СЃС‚СЂРѕРє
+            result = '\n'.join(lines[:200])  # Первые 200 строк
             
             if result:
                 self.logger.info(f"Печатная форма загружена для {reg_number} ({len(result)} символов)")
@@ -735,15 +735,15 @@ class Pipeline:
         )
     def run_stage3(self, limit: int = None, reg_numbers: List[str] = None, overwrite: bool = False) -> StageResult:
         """
-        Stage 3: РіРµРЅРµСЂР°С†РёСЏ СЃСЃС‹Р»РѕРє 2Р“РРЎ.
+        Stage 3: генерация ссылок 2ГИС.
         
         Args:
-            limit: РљРѕР»РёС‡РµСЃС‚РІРѕ Р·Р°РєСѓРїРѕРє РґР»СЏ РѕР±СЂР°Р±РѕС‚РєРё (None = РІСЃРµ)
-            reg_numbers: РЎРїРёСЃРѕРє ID РґР»СЏ РѕР±СЂР°Р±РѕС‚РєРё
-            overwrite: РџРµСЂРµР·Р°РїРёСЃС‹РІР°С‚СЊ СЃСѓС‰РµСЃС‚РІСѓСЋС‰РёРµ СЃСЃС‹Р»РєРё
+            limit: Количество закупок для обработки (None = все)
+            reg_numbers: Список ID для обработки
+            overwrite: Перезаписывать существующие ссылки
         
         Returns:
-            StageResult СЃ РґР°РЅРЅС‹РјРё Рѕ РіРµРЅРµСЂР°С†РёРё
+            StageResult с данными о генерации
         """
         self.logger.info(f"Stage 3: генерация ссылок (limit={limit}, reg_numbers={len(reg_numbers) if reg_numbers else 'All'}, overwrite={overwrite})")
         
@@ -751,7 +751,7 @@ class Pipeline:
         generated = 0
         items = []
         
-        # ???????? ai_results
+        # Получаем ai_results
         if reg_numbers:
             ai_results = []
             for reg in reg_numbers:
@@ -810,15 +810,15 @@ class Pipeline:
         get_details: bool = False
     ) -> StageResult:
         """
-        Stage 4: РЎР±РѕСЂ РѕР±СЉСЏРІР»РµРЅРёР№ СЃ 2Р“РРЎ.
+        Stage 4: Сбор объявлений с 2ГИС.
         
         Args:
-            top_n: РљРѕР»РёС‡РµСЃС‚РІРѕ РѕР±СЉСЏРІР»РµРЅРёР№ РЅР° Р·Р°РєСѓРїРєСѓ
-            limit: РљРѕР»РёС‡РµСЃС‚РІРѕ Р·Р°РєСѓРїРѕРє РґР»СЏ РѕР±СЂР°Р±РѕС‚РєРё (None = РІСЃРµ)
-            get_details: РџРѕР»СѓС‡Р°С‚СЊ РґРµС‚Р°Р»Рё (РіРѕРґ РїРѕСЃС‚СЂРѕР№РєРё)
+            top_n: Количество объявлений на закупку
+            limit: Количество закупок для обработки (None = все)
+            get_details: Получать детали (год постройки)
         
         Returns:
-            StageResult СЃ РґР°РЅРЅС‹РјРё Рѕ СЃР±РѕСЂРµ
+            StageResult с данными о сборе
         """
         self.logger.info(f"Stage 4: сбор объявлений (top_n={top_n}, limit={limit}, details={get_details})")
         
@@ -826,7 +826,7 @@ class Pipeline:
         total_listings = 0
         processed = 0
         
-        # РџРѕР»СѓС‡Р°РµРј Р·Р°РєСѓРїРєРё СЃ URL
+        # Получаем закупки с URL
         zakupki = self.eis.get_zakupki_with_links()
         if limit:
             zakupki = zakupki[:limit]

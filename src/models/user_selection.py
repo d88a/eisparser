@@ -1,4 +1,4 @@
-﻿"""User selection model."""
+"""User selection model."""
 
 from dataclasses import dataclass, field
 from datetime import datetime

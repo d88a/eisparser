@@ -1,4 +1,4 @@
-﻿"""FastAPI application for the UI pipeline."""
+"""FastAPI application for the UI pipeline."""
 
 from contextlib import asynccontextmanager
 import os

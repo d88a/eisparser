@@ -1,0 +1,124 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EIS Parser - Публичные закупки</title>
+    <link rel="stylesheet" href="/static/css/public.css?v=20260408-v4">
+</head>
+<body class="bg-app">
+    <header class="site-header">
+        <div class="site-header-inner">
+            <a href="/public/zakupki" class="brand-link">
+                <div class="brand-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                </div>
+                <div>
+                    <div class="brand-title">EIS Parser</div>
+                    <div class="brand-subtitle">Прототип витрины закупок</div>
+                </div>
+            </a>
+            <nav class="site-nav">
+                {% if is_public_authenticated %}
+                <a href="/public/reservations" class="nav-toggle-link">Личный кабинет</a>
+                <div class="account-menu" data-account-menu>
+                    <button class="account-trigger" type="button" data-account-trigger>
+                        <div class="profile-chip" title="{{ public_profile.email }}">
+                            <div class="profile-avatar">{{ public_profile.initials }}</div>
+                            <div class="profile-info">
+                                <div class="profile-name">{{ public_profile.display_name }}</div>
+                                <div class="profile-email">{{ public_profile.email }}</div>
+                            </div>
+                        </div>
+                    </button>
+                    <div class="account-dropdown" data-account-dropdown>
+                        <a href="/public/reservations" class="dropdown-item">Настройки аккаунта</a>
+                        <form action="/api/public/logout" method="post" class="dropdown-form">
+                            <button type="submit" class="dropdown-item dropdown-danger">Выйти</button>
+                        </form>
+                    </div>
+                </div>
+                <button class="btn-logout" type="button">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                    <span class="btn-logout-text">Выход</span>
+                </button>
+                {% else %}
+                <a href="/public/login?next=/public/zakupki" class="btn btn-secondary btn-sm">Войти</a>
+                <a href="/public/register?next=/public/zakupki" class="btn btn-outline btn-sm">Регистрация</a>
+                {% endif %}
+            </nav>
+        </div>
+    </header>
+
+    <main class="page-main">
+        <section class="page-hero fade-in-up">
+            <div>
+                <h1 class="page-hero-title">Публичная витрина закупок</h1>
+                <p class="page-hero-desc">Desktop-first таблица для подбора закупок и управления бронью.</p>
+            </div>
+            <div class="hero-summary">
+                <div class="hero-summary-label">Всего закупок</div>
+                <div class="hero-summary-value" id="hero-total-count">0</div>
+            </div>
+        </section>
+
+        <section class="filter-section">
+            <div class="filter-grid">
+                <div class="filter-checkbox-item">
+                    <label class="filter-checkbox-label">
+                        <span class="filter-toggle">
+                            <input type="checkbox" id="flt-has-listings">
+                            <span class="filter-toggle-box" aria-hidden="true"></span>
+                        </span>
+                        Только с вариантами квартир
+                    </label>
+                </div>
+                <div class="filter-item">
+                    <label class="filter-label" for="flt-margin-min">Маржа от, %</label>
+                    <input type="number" id="flt-margin-min" class="filter-input" min="0" step="0.1" placeholder="Например, 8">
+                </div>
+                <div class="filter-item">
+                    <label class="filter-label">Сортировка</label>
+                    <select id="sort-mode" class="filter-input">
+                        <option value="date_asc">По окончанию подачи</option>
+                        <option value="margin_desc">По марже</option>
+                        <option value="price_desc">По цене</option>
+                    </select>
+                </div>
+                <div class="filter-item">
+                    <button id="btn-filters-reset" class="btn btn-outline" type="button">Сброс</button>
+                </div>
+            </div>
+        </section>
+
+        <div class="table-container">
+            <div class="table-scroll">
+                <table class="data-table" id="public-table">
+                    <thead>
+                        <tr>
+                            <th class="th-left">Рег.номер</th>
+                            <th class="th-left th-title">Название</th>
+                            <th class="th-right">Цена</th>
+                            <th class="th-center">Квартиры</th>
+                            <th class="th-right">Маржа</th>
+                            <th class="th-center">Избранное</th>
+                            <th class="th-center">Бронь</th>
+                            <th class="th-left">Окончание подачи</th>
+                        </tr>
+                    </thead>
+                    <tbody id="public-list-body">
+                        <tr class="state-row"><td colspan="8" class="state-cell">Загрузка...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="table-footer">
+                <button id="btn-load-more" class="btn" type="button" style="display:none;">Показать ещё</button>
+            </div>
+        </div>
+    </main>
+
+    <script src="/static/js/public_common.js?v=20260408-v4"></script>
+    <script src="/static/js/public_list.js?v=20260408-v4"></script>
+</body>
+</html>

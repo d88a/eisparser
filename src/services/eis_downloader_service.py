@@ -1,4 +1,4 @@
-﻿"""Service for downloading and parsing purchases from zakupki.gov.ru."""
+"""Service for downloading and parsing purchases from zakupki.gov.ru."""
 
 import os
 import re

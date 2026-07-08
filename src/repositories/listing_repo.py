@@ -1,4 +1,4 @@
-﻿"""Repository for collected listings."""
+"""Repository for collected listings."""
 
 from datetime import datetime
 from typing import List, Optional
@@ -144,6 +144,44 @@ class ListingRepository(BaseRepository[Listing]):
                 return result
 
         return self.execute_with_retry(_get) or []
+
+    def get_stats_for_zakupki(self, reg_numbers: List[str]) -> dict[str, dict]:
+        regs = [str(x).strip() for x in (reg_numbers or []) if str(x).strip()]
+        if not regs:
+            return {}
+
+        def _get_stats():
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                placeholders = ",".join(["?"] * len(regs))
+                cursor.execute(
+                    f"""
+                    SELECT
+                        zakupka_reg_number AS reg_number,
+                        COUNT(*) AS listings_count,
+                        MIN(price_rub) AS min_price_rub
+                    FROM listings
+                    WHERE zakupka_reg_number IN ({placeholders})
+                    GROUP BY zakupka_reg_number
+                    """,
+                    regs,
+                )
+                rows = cursor.fetchall()
+                result = {reg: {"listings_count": 0, "min_price_rub": None} for reg in regs}
+                for row in rows:
+                    row_dict = self.row_to_dict(row)
+                    if not row_dict:
+                        continue
+                    reg = str(row_dict.get("reg_number") or "").strip()
+                    if not reg:
+                        continue
+                    result[reg] = {
+                        "listings_count": int(row_dict.get("listings_count") or 0),
+                        "min_price_rub": row_dict.get("min_price_rub"),
+                    }
+                return result
+
+        return self.execute_with_retry(_get_stats) or {}
 
     def delete(self, id: str) -> bool:
         def _delete():

@@ -440,7 +440,7 @@ async function runStage2() {
                 : "";
 
             setRunStatusHtml(
-                `${successPart}. ${movedPart}${failedPart} <a href="/stage3" style="margin-left:6px;">Перейти на Этап 3</a>`,
+                `${successPart}. ${movedPart}${failedPart} <a href="/admin/stage3" style="margin-left:6px;">Перейти на Этап 3</a>`,
                 failedRegs.length > 0 ? "info" : "success"
             );
             if (processedRegs.length > 0) {

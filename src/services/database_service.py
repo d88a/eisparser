@@ -6,7 +6,16 @@ from pathlib import Path
 from typing import Optional
 from config.settings import settings
 from models.zakupka import Zakupka
-from repositories import ZakupkaRepository, AIResultRepository, ListingRepository, UserRepository, DecisionRepository
+from repositories import (
+    ZakupkaRepository,
+    AIResultRepository,
+    ListingRepository,
+    ListingReservationRepository,
+    ZakupkaReservationRepository,
+    PublicFavoriteRepository,
+    UserRepository,
+    DecisionRepository,
+)
 from repositories.user_override_repo import UserOverrideRepository
 from repositories.user_selection_repo import UserSelectionRepository
 from utils.logger import get_logger
@@ -31,6 +40,9 @@ class DatabaseService:
         self.zakupki = ZakupkaRepository(self.db_path, self.database_url)
         self.ai_results = AIResultRepository(self.db_path, self.database_url)
         self.listings = ListingRepository(self.db_path, self.database_url)
+        self.listing_reservations = ListingReservationRepository(self.db_path, self.database_url)
+        self.zakupka_reservations = ZakupkaReservationRepository(self.db_path, self.database_url)
+        self.public_favorites = PublicFavoriteRepository(self.db_path, self.database_url)
         self.users = UserRepository(self.db_path, self.database_url)
         self.decisions = DecisionRepository(self.db_path, self.database_url)
         self.user_overrides = UserOverrideRepository(self.db_path, self.database_url)
@@ -58,6 +70,9 @@ class DatabaseService:
             self.zakupki.create_table(),
             self.ai_results.create_table(),
             self.listings.create_table(),
+            self.listing_reservations.create_table(),
+            self.zakupka_reservations.create_table(),
+            self.public_favorites.create_table(),
             self.users.create_table(),
             self.decisions.create_table(),
             self.user_overrides.create_table(),
@@ -103,6 +118,9 @@ class DatabaseService:
             "zakupki_count": len(self.zakupki.get_all()),
             "ai_results_count": len(self.ai_results.get_all()),
             "listings_count": self.listings.count(),
+            "listing_reservations_count": len(self.listing_reservations.get_all()),
+            "zakupka_reservations_count": len(self.zakupka_reservations.get_all()),
+            "public_favorites_count": len(self.public_favorites.get_all()),
             "users_count": self.users.count(),
             "decisions_count": len(self.decisions.get_all())
         }

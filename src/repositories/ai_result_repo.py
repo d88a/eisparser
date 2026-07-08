@@ -1,4 +1,4 @@
-﻿"""Repository for AI analysis results."""
+"""Repository for AI analysis results."""
 
 from typing import List, Optional
 
@@ -95,6 +95,31 @@ class AIResultRepository(BaseRepository[AIResult]):
                 return AIResult.from_dict(row_dict) if row_dict else None
 
         return self.execute_with_retry(_get)
+
+    def get_by_reg_numbers_map(self, reg_numbers: List[str]) -> dict[str, AIResult]:
+        regs = [str(x).strip() for x in (reg_numbers or []) if str(x).strip()]
+        if not regs:
+            return {}
+
+        def _get_map():
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                placeholders = ",".join(["?"] * len(regs))
+                cursor.execute(
+                    f"SELECT * FROM ai_results WHERE reg_number IN ({placeholders})",
+                    regs,
+                )
+                rows = cursor.fetchall()
+                result: dict[str, AIResult] = {}
+                for row in rows:
+                    row_dict = self.row_to_dict(row)
+                    if not row_dict:
+                        continue
+                    entity = AIResult.from_dict(row_dict)
+                    result[entity.reg_number] = entity
+                return result
+
+        return self.execute_with_retry(_get_map) or {}
 
     def get_all(self) -> List[AIResult]:
         def _get_all():

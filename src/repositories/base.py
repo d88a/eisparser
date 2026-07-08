@@ -1,4 +1,4 @@
-﻿"""Base repository with SQLite/PostgreSQL support."""
+"""Base repository with SQLite/PostgreSQL support."""
 
 from __future__ import annotations
 

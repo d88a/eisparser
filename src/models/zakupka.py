@@ -1,4 +1,4 @@
-﻿"""Модель закупки с ЕИС."""
+"""Модель закупки с ЕИС."""
 
 from dataclasses import dataclass, asdict
 from datetime import datetime

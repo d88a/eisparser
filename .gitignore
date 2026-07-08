@@ -41,3 +41,36 @@ verify_server.py
 *.tar.gz
 *.zip
 src/api/routes.py.bak_*
+
+# Secrets
+src/.env
+
+# Sync artifacts
+.local_manifest.txt
+.server_manifest.txt
+.sync_backup_*/
+
+# Temp
+tmp/
+tmp_*.py
+
+# Binaries
+eisparser.bundle
+deploy_vds.tar.gz
+deploy_*.tar.gz
+
+# Results runtime data
+results/*.db
+results/*.sqlite
+results/logs/
+results/*.log
+src/results/
+
+# Dead code archive
+src/api/archive/
+
+# Backup files
+*.bak_*
+
+# Maket
+maket/node_modules/

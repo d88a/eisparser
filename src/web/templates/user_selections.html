@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ru">
 
 <head>
@@ -66,13 +66,12 @@
                         <th>Площадь</th>
                         <th>Комнат</th>
                         <th>Цена</th>
-                        <th>2ГИС</th>
                         <th>Действия</th>
                     </tr>
                 </thead>
                 <tbody id="zakupki-tbody">
                     <tr>
-                        <td colspan="8" style="text-align: center; padding: 40px;">
+                        <td colspan="7" style="text-align: center; padding: 40px;">
                             Загрузка...
                         </td>
                     </tr>
@@ -103,7 +102,7 @@
             const tbody = document.getElementById('zakupki-tbody');
 
             if (zakupki.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px;">Нет выбранных закупок. <a href="/user/available">Выберите закупки</a></td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px;">Нет выбранных закупок. <a href="/user/available">Выберите закупки</a></td></tr>';
                 return;
             }
 
@@ -115,7 +114,6 @@
                     <td>${z.area || '-'}</td>
                     <td>${z.rooms || '-'}</td>
                     <td>${z.initial_price ? (z.initial_price / 1000000).toFixed(2) + ' млн' : '-'}</td>
-                    <td>${z.two_gis_url ? '<a href="' + z.two_gis_url + '" target="_blank">Открыть</a>' : '-'}</td>
                     <td>
                         <button class="btn-small btn-remove" data-reg="${z.reg_number}">Удалить</button>
                     </td>

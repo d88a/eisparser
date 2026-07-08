@@ -1,4 +1,4 @@
-﻿"""Logging utilities for EIS Parser."""
+"""Logging utilities for EIS Parser."""
 
 from __future__ import annotations
 

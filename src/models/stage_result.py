@@ -1,4 +1,4 @@
-﻿"""
+"""
 Модель результата выполнения этапа.
 """
 from dataclasses import dataclass, field

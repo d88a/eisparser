@@ -1,4 +1,4 @@
-﻿"""User override model."""
+"""User override model."""
 
 from dataclasses import dataclass, field
 from datetime import datetime

@@ -1,4 +1,4 @@
-﻿"""Utilities for extracting text from different document formats."""
+"""Utilities for extracting text from different document formats."""
 
 from __future__ import annotations
 

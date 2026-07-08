@@ -1,4 +1,4 @@
-﻿"""Application settings loaded from environment variables."""
+"""Application settings loaded from environment variables."""
 
 import os
 import logging
@@ -38,6 +38,7 @@ class Settings:
     stage4_max_retries: int = 3
     stage4_scroll_timeout_s: int = 30
     worker_enable_stage4: bool = True
+    reservation_ttl_hours: int = 72
 
     # AI
     ai_stage2_delay_s: float = 2.0
@@ -90,6 +91,7 @@ class Settings:
         self.stage4_use_real_chrome = os.getenv("STAGE4_USE_REAL_CHROME", "true").lower() == "true"
         self.stage4_page_timeout_s = int(os.getenv("STAGE4_PAGE_TIMEOUT_S", "60"))
         self.worker_enable_stage4 = os.getenv("WORKER_ENABLE_STAGE4", "true").lower() == "true"
+        self.reservation_ttl_hours = max(1, int(os.getenv("RESERVATION_TTL_HOURS", "72")))
 
         # AI delay between Stage 2 requests
         self.ai_stage2_delay_s = float(os.getenv("AI_STAGE2_DELAY_S", "2.0"))

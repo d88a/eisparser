@@ -1,4 +1,4 @@
-﻿"""Service wrapper around AI result repository methods."""
+"""Service wrapper around AI result repository methods."""
 
 from typing import Optional
 

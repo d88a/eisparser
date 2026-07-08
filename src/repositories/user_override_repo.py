@@ -1,4 +1,4 @@
-﻿"""Repository for user overrides."""
+"""Repository for user overrides."""
 
 from typing import Dict, List, Optional
 

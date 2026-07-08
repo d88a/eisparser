@@ -1,0 +1,151 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EIS Parser - Настройки аккаунта</title>
+    <link rel="stylesheet" href="/static/css/public.css?v=20260408-v4">
+</head>
+<body class="bg-app">
+    <header class="site-header">
+        <div class="site-header-inner">
+            <a href="/public/zakupki" class="brand-link">
+                <div class="brand-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                </div>
+                <div>
+                    <div class="brand-title">EIS Parser</div>
+                    <div class="brand-subtitle">Прототип витрины закупок</div>
+                </div>
+            </a>
+            <nav class="site-nav">
+                {% if is_public_authenticated %}
+                <a href="/public/reservations" class="nav-toggle-link">Личный кабинет</a>
+                <div class="account-menu" data-account-menu>
+                    <button class="account-trigger" type="button" data-account-trigger>
+                        <div class="profile-chip" title="{{ public_profile.email }}">
+                            <div class="profile-avatar">{{ public_profile.initials }}</div>
+                            <div class="profile-info">
+                                <div class="profile-name">{{ public_profile.display_name }}</div>
+                                <div class="profile-email">{{ public_profile.email }}</div>
+                            </div>
+                        </div>
+                    </button>
+                    <div class="account-dropdown" data-account-dropdown>
+                        <a href="/public/account" class="dropdown-item">Настройки аккаунта</a>
+                        <form action="/api/public/logout" method="post" class="dropdown-form">
+                            <button type="submit" class="dropdown-item dropdown-danger">Выйти</button>
+                        </form>
+                    </div>
+                </div>
+                <button class="btn-logout" type="button">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                    <span class="btn-logout-text">Выход</span>
+                </button>
+                {% else %}
+                <a href="/public/login?next=/public/account" class="btn btn-secondary btn-sm">Войти</a>
+                <a href="/public/register?next=/public/account" class="btn btn-outline btn-sm">Регистрация</a>
+                {% endif %}
+            </nav>
+        </div>
+    </header>
+
+    <main class="page-main">
+        <div class="account-container">
+            <div class="account-hero fade-in-up">
+                <h1>Настройки аккаунта</h1>
+                <p>Управление профилем и безопасностью</p>
+            </div>
+
+            <div class="space-y-6">
+                <div class="account-card mb-5">
+                    <div class="account-card-header">
+                        <div class="account-avatar-lg" id="acc-avatar">А</div>
+                        <div>
+                            <div class="account-card-title">Профиль</div>
+                            <div class="account-card-desc">Основная информация о вашем аккаунте</div>
+                        </div>
+                    </div>
+
+                    <form class="account-form" id="profile-form">
+                        <div>
+                            <label class="form-label" for="acc-display-name">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                                Имя
+                            </label>
+                            <input class="form-input" type="text" id="acc-display-name" minlength="2" maxlength="120" required placeholder="Введите ваше имя" style="margin-top:6px;">
+                        </div>
+
+                        <div>
+                            <label class="form-label" for="acc-email">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                                Email
+                            </label>
+                            <input class="form-input" type="email" id="acc-email" readonly style="margin-top:6px;">
+                            <p class="form-hint">Email не может быть изменен</p>
+                        </div>
+
+                        <div class="form-actions">
+                            <button class="btn btn-lg" type="submit" id="btn-save-profile">Сохранить изменения</button>
+                            <div class="success-msg" id="profile-saved-msg" style="display:none;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>
+                                Сохранено
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="account-card mb-5">
+                    <div class="account-card-header">
+                        <div class="account-icon-circle">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        </div>
+                        <div>
+                            <div class="account-card-title">Безопасность</div>
+                            <div class="account-card-desc">Изменение пароля для входа в систему</div>
+                        </div>
+                    </div>
+
+                    <form class="account-form" id="password-form">
+                        <div>
+                            <label class="form-label" for="acc-current-password">Текущий пароль</label>
+                            <input class="form-input" type="password" id="acc-current-password" required placeholder="Введите текущий пароль" style="margin-top:6px;">
+                        </div>
+
+                        <div class="password-grid">
+                            <div>
+                                <label class="form-label" for="acc-new-password">Новый пароль</label>
+                                <input class="form-input" type="password" id="acc-new-password" minlength="8" required placeholder="Введите новый пароль" style="margin-top:6px;">
+                            </div>
+                            <div>
+                                <label class="form-label" for="acc-confirm-password">Подтвердите пароль</label>
+                                <input class="form-input" type="password" id="acc-confirm-password" minlength="8" required placeholder="Повторите новый пароль" style="margin-top:6px;">
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button class="btn btn-secondary btn-lg" type="submit" id="btn-save-password">Изменить пароль</button>
+                            <div class="success-msg" id="password-saved-msg" style="display:none;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>
+                                Пароль изменен
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="account-card security-card mb-5">
+                    <h3>О безопасности</h3>
+                    <ul>
+                        <li>• Используйте надежный пароль длиной не менее 8 символов</li>
+                        <li>• Не сообщайте свой пароль третьим лицам</li>
+                        <li>• Регулярно меняйте пароль для повышения безопасности</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="/static/js/public_common.js?v=20260408-v4"></script>
+    <script src="/static/js/public_account.js?v=20260408-v4"></script>
+</body>
+</html>

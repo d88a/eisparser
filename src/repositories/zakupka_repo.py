@@ -1,4 +1,4 @@
-﻿"""Repository for purchases (zakupki)."""
+"""Repository for purchases (zakupki)."""
 
 from datetime import datetime
 from typing import List, Optional
@@ -35,6 +35,7 @@ class ZakupkaRepository(BaseRepository[Zakupka]):
                     )
                     """
                 )
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_zakupki_status ON zakupki(status)")
                 conn.commit()
                 return True
 
@@ -284,6 +285,58 @@ class ZakupkaRepository(BaseRepository[Zakupka]):
                 return result
 
         return self.execute_with_retry(_get) or []
+
+    def get_public_list_page(self, statuses: List[str], offset: int = 0, limit: int = 20) -> tuple[list[dict], int]:
+        if not statuses:
+            return [], 0
+
+        safe_offset = max(0, int(offset or 0))
+        safe_limit = max(1, int(limit or 20))
+
+        def _get():
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                placeholders = ",".join(["?"] * len(statuses))
+                cursor.execute(
+                    f"SELECT COUNT(*) AS c FROM zakupki WHERE status IN ({placeholders})",
+                    statuses,
+                )
+                count_row = cursor.fetchone()
+                total = int(count_row["c"] if hasattr(count_row, "keys") else count_row[0])
+
+                cursor.execute(
+                    f"""
+                    SELECT
+                        reg_number,
+                        description,
+                        update_date,
+                        bid_end_date,
+                        initial_price,
+                        status,
+                        prepared_at,
+                        processed_at
+                    FROM zakupki
+                    WHERE status IN ({placeholders})
+                    ORDER BY
+                        CASE WHEN prepared_at IS NULL THEN 1 ELSE 0 END,
+                        prepared_at DESC,
+                        CASE WHEN processed_at IS NULL THEN 1 ELSE 0 END,
+                        processed_at DESC,
+                        update_date DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    statuses + [safe_limit, safe_offset],
+                )
+                rows = cursor.fetchall()
+                items = []
+                for row in rows:
+                    row_dict = self.row_to_dict(row)
+                    if row_dict:
+                        items.append(row_dict)
+                return items, total
+
+        result = self.execute_with_retry(_get)
+        return result if result is not None else ([], 0)
 
     def get_status_counts(self) -> dict:
         def _count():

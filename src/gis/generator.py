@@ -1,4 +1,3 @@
-# project_real/project_root/gis/generator.py
 """
 Генерация ссылки поиска 2ГИС по городу и параметрам.
 
@@ -62,6 +61,7 @@ def build_2gis_realty_url(
     floor_min: int | None = None,
     price_max: float | None = None,
     sort: str = "price_asc",
+    apartment_only: bool = True,
     on_map: bool = True,
     zoom: float = 14.67,
 ) -> str:
@@ -103,6 +103,10 @@ def build_2gis_realty_url(
     # 3. Sort
     if sort:
         fragments.append(f"sort={sort}")
+
+    # Apartment-only filter (exclude rooms/shares by default)
+    if apartment_only:
+        fragments.append("tip_pomeshcheniya=1067258717690367200")
 
     # 4. Area fragment
     area_frag = build_range_fragment("obshchaya_ploshchad", area_min_f, area_max_f)

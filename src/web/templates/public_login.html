@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EIS Parser - Вход</title>
+    <link rel="stylesheet" href="/static/css/public.css?v=20260409-v5">
+</head>
+<body class="bg-app">
+    <header class="site-header">
+        <div class="site-header-inner">
+            <a href="/public/zakupki" class="brand-link">
+                <div class="brand-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                </div>
+                <div>
+                    <div class="brand-title">EIS Parser</div>
+                    <div class="brand-subtitle">Прототип витрины закупок</div>
+                </div>
+            </a>
+            <nav class="site-nav">
+                <a href="/public/zakupki" class="nav-toggle-link">Витрина закупок</a>
+                <a href="/public/register?next={{ next }}" class="nav-toggle-link">Регистрация</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="page-main">
+        <div class="auth-container fade-in-up">
+            <div class="auth-card">
+                <div class="auth-title-row">
+                    <h1>Вход</h1>
+                </div>
+                <p class="auth-desc">Войдите, чтобы бронировать закупки и управлять своими бронями.</p>
+
+                {% if error %}
+                <div class="auth-error">{{ error }}</div>
+                {% endif %}
+
+                <form method="post" action="/api/public/login" class="auth-form">
+                    <input type="hidden" name="next" value="{{ next }}">
+                    <div>
+                        <label class="form-label" for="login-email">Email</label>
+                        <input class="form-input" type="email" id="login-email" name="email" required placeholder="you@example.com" style="margin-top:6px;">
+                    </div>
+                    <div>
+                        <label class="form-label" for="login-password">Пароль</label>
+                        <input class="form-input" type="password" id="login-password" name="password" required placeholder="Введите пароль" style="margin-top:6px;">
+                    </div>
+                    <button class="btn btn-lg" type="submit">Войти</button>
+                </form>
+
+                <div class="auth-footer">
+                    Нет аккаунта? <a href="/public/register?next={{ next }}">Зарегистрироваться</a>
+                </div>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

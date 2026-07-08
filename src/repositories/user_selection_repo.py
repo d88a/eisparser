@@ -1,4 +1,4 @@
-﻿"""Repository for user selections."""
+"""Repository for user selections."""
 
 from typing import List
 

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Сервис для генерации URL 2ГИС.
 """
 
@@ -14,6 +14,8 @@ class GISService:
 
     STAGE3_URL_PREFIX = "https://2gis.ru/realty/sale/filters"
     LEGACY_STAGE3_SEARCH_PREFIX = "https://2gis.ru/search/"
+    # 2GIS filter id for "Квартира" (exclude rooms/shares/houses in public filters)
+    APARTMENT_TYPE_2GIS_ID = "1067258717690367200"
 
     def __init__(self, csv_path: str = None):
         self.csv_path = csv_path or settings.coordinates_csv_path
@@ -69,6 +71,7 @@ class GISService:
         floor_min: int = None,
         price_max: float = None,
         sort: str = "price_asc",
+        apartment_only: bool = True,
         on_map: bool = True,
         zoom: float = 14.67,
     ) -> Optional[str]:
@@ -83,6 +86,9 @@ class GISService:
 
         if sort:
             fragments.append(f"sort={sort}")
+
+        if apartment_only:
+            fragments.append(f"tip_pomeshcheniya={self.APARTMENT_TYPE_2GIS_ID}")
 
         area_frag = build_range_fragment("obshchaya_ploshchad", area_min, area_max)
         if area_frag:

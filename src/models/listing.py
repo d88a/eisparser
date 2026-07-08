@@ -21,6 +21,7 @@ class Listing:
     two_gis_url: Optional[str] = None           # Ссылка на объявление в 2ГИС
     external_source: Optional[str] = None       # domclick|cian|avito|null
     external_url: Optional[str] = None          # Внешняя ссылка
+    id: Optional[int] = None                    # ID в БД
     
     def to_dict(self) -> dict:
         """Преобразует объект в словарь."""
@@ -40,7 +41,8 @@ class Listing:
             building_year=data.get('building_year'),
             two_gis_url=data.get('two_gis_url'),
             external_source=data.get('external_source'),
-            external_url=data.get('external_url')
+            external_url=data.get('external_url'),
+            id=data.get('id')
         )
 
 

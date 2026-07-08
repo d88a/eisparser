@@ -1,4 +1,4 @@
-﻿"""
+"""
 Model for AI extraction result.
 """
 

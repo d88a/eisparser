@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """EIS Parser CLI entrypoint."""
 
 from __future__ import annotations
