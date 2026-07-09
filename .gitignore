@@ -74,3 +74,6 @@ src/api/archive/
 
 # Maket
 maket/node_modules/
+
+# Project memory
+memory/
