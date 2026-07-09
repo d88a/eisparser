@@ -284,6 +284,22 @@ class ViewService:
                 continue
             filtered_rows.append(z)
 
+        # Sort: listings first, then by date
+        def _sort_key(row):
+            reg = str(row.get("reg_number") or "").strip()
+            stats = listing_stats_map.get(reg, {})
+            has_listings = 1 if (stats.get("listings_count") or 0) > 0 else 0
+            return (
+                has_listings,
+                row.get("prepared_at") is not None,
+                str(row.get("prepared_at") or ""),
+                row.get("processed_at") is not None,
+                str(row.get("processed_at") or ""),
+                str(row.get("update_date") or ""),
+            )
+
+        filtered_rows.sort(key=_sort_key, reverse=True)
+
         total = len(filtered_rows)
         page_rows = filtered_rows[safe_offset : safe_offset + safe_limit]
 

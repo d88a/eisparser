@@ -150,10 +150,10 @@ class ListingRepository(BaseRepository[Listing]):
         if not regs:
             return {}
 
-        def _get_stats():
+        def _get_stats_batch(batch_regs):
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                placeholders = ",".join(["?"] * len(regs))
+                placeholders = ",".join(["?"] * len(batch_regs))
                 cursor.execute(
                     f"""
                     SELECT
@@ -164,10 +164,10 @@ class ListingRepository(BaseRepository[Listing]):
                     WHERE zakupka_reg_number IN ({placeholders})
                     GROUP BY zakupka_reg_number
                     """,
-                    regs,
+                    batch_regs,
                 )
                 rows = cursor.fetchall()
-                result = {reg: {"listings_count": 0, "min_price_rub": None} for reg in regs}
+                batch_result = {}
                 for row in rows:
                     row_dict = self.row_to_dict(row)
                     if not row_dict:
@@ -175,13 +175,21 @@ class ListingRepository(BaseRepository[Listing]):
                     reg = str(row_dict.get("reg_number") or "").strip()
                     if not reg:
                         continue
-                    result[reg] = {
+                    batch_result[reg] = {
                         "listings_count": int(row_dict.get("listings_count") or 0),
                         "min_price_rub": row_dict.get("min_price_rub"),
                     }
-                return result
+                return batch_result
 
-        return self.execute_with_retry(_get_stats) or {}
+        # Process in batches to avoid query timeouts with large IN clauses
+        batch_size = 500
+        result = {reg: {"listings_count": 0, "min_price_rub": None} for reg in regs}
+        for i in range(0, len(regs), batch_size):
+            batch = regs[i : i + batch_size]
+            batch_stats = self.execute_with_retry(_get_stats_batch, batch)
+            if batch_stats:
+                result.update(batch_stats)
+        return result
 
     def delete(self, id: str) -> bool:
         def _delete():

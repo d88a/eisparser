@@ -12,11 +12,11 @@ from typing import Any, Generic, List, Optional, TypeVar
 from utils.logger import get_logger
 
 try:
-    import psycopg2
-    from psycopg2 import extras as psycopg2_extras
+    import psycopg
+    from psycopg.rows import dict_row as psycopg_dict_row
 except Exception:  # pragma: no cover - optional dependency
-    psycopg2 = None
-    psycopg2_extras = None
+    psycopg = None
+    psycopg_dict_row = None
 
 T = TypeVar("T")
 
@@ -52,16 +52,21 @@ class _CursorAdapter:
     def lastrowid(self):
         return getattr(self._cursor, "lastrowid", None)
 
+    @property
+    def description(self):
+        return self._cursor.description
+
     def __getattr__(self, item):
         return getattr(self._cursor, item)
 
 
 class _ConnectionAdapter:
-    """Adds connection.execute for psycopg2 and maps placeholders."""
+    """Adds connection.execute for psycopg/psycopg2 and maps placeholders."""
 
-    def __init__(self, conn: Any, sql_mapper):
+    def __init__(self, conn: Any, sql_mapper, is_postgres: bool = False):
         self._conn = conn
         self._sql_mapper = sql_mapper
+        self._is_postgres = is_postgres
 
     def cursor(self):
         return _CursorAdapter(self._conn.cursor(), self._sql_mapper)
@@ -121,15 +126,15 @@ class BaseRepository(ABC, Generic[T]):
         raw_conn = None
         try:
             if self.is_postgres:
-                if psycopg2 is None:
+                if psycopg is None:
                     raise RuntimeError(
-                        "DATABASE_URL is set but psycopg2 is not installed. "
-                        "Install dependency: psycopg2-binary"
+                        "DATABASE_URL is set but psycopg is not installed. "
+                        "Install dependency: psycopg[binary]"
                     )
-                raw_conn = psycopg2.connect(
+                raw_conn = psycopg.connect(
                     self.database_url,
                     connect_timeout=30,
-                    cursor_factory=psycopg2_extras.DictCursor,
+                    row_factory=psycopg_dict_row,
                 )
             else:
                 raw_conn = sqlite3.connect(self.db_path, timeout=30.0)
@@ -137,7 +142,7 @@ class BaseRepository(ABC, Generic[T]):
                 raw_conn.execute("PRAGMA busy_timeout = 30000")
                 raw_conn.execute("PRAGMA journal_mode = WAL")
 
-            yield _ConnectionAdapter(raw_conn, self._sql)
+            yield _ConnectionAdapter(raw_conn, self._sql, self.is_postgres)
         finally:
             if raw_conn is not None:
                 raw_conn.close()
@@ -146,7 +151,7 @@ class BaseRepository(ABC, Generic[T]):
         msg = str(exc).lower()
         if isinstance(exc, sqlite3.OperationalError):
             return "database is locked" in msg or "database is busy" in msg
-        if psycopg2 is not None and isinstance(exc, psycopg2.OperationalError):
+        if psycopg is not None and isinstance(exc, psycopg.OperationalError):
             return True
         retryable_pg_markers = (
             "deadlock detected",

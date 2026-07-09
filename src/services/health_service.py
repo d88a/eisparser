@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from services.worker_service import WorkerService, psycopg2
+from services.worker_service import WorkerService, psycopg
 
 
 @dataclass
@@ -53,12 +53,12 @@ class HealthService:
         db_url = str(getattr(self.pipeline.db, "database_url", "") or "").strip()
         if not db_url:
             return WorkerProbe(status="unknown", had_error=False)
-        if psycopg2 is None:
+        if psycopg is None:
             return WorkerProbe(status="unknown", had_error=False)
 
         conn = None
         try:
-            conn = psycopg2.connect(db_url, connect_timeout=5)
+            conn = psycopg.connect(db_url, connect_timeout=5)
             conn.autocommit = True
             with conn.cursor() as cur:
                 cur.execute("SELECT pg_try_advisory_lock(%s)", (int(lock_key),))

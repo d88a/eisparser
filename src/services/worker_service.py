@@ -14,9 +14,9 @@ from models.statuses import STAGE4_QUEUE_STATUSES, ZakupkaStatus
 from utils.logger import get_logger
 
 try:
-    import psycopg2
+    import psycopg
 except Exception:  # pragma: no cover - optional runtime dependency
-    psycopg2 = None
+    psycopg = None
 
 if TYPE_CHECKING:  # pragma: no cover
     from pipeline import Pipeline
@@ -92,12 +92,12 @@ class WorkerService:
             )
             return True
 
-        if psycopg2 is None:
-            self.logger.error("psycopg2 is required for PostgreSQL advisory lock")
+        if psycopg is None:
+            self.logger.error("psycopg is required for PostgreSQL advisory lock")
             return False
 
         try:
-            conn = psycopg2.connect(db_url, connect_timeout=10)
+            conn = psycopg.connect(db_url, connect_timeout=10)
             conn.autocommit = True
             with conn.cursor() as cur:
                 cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
